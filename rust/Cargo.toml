@@ -1,0 +1,16 @@
+[package]
+name = "mirrors"
+version = "0.1.0"
+authors = ["Polgár András <azazdeaz@gmail.com>"]
+edition = "2018"
+
+[lib]
+crate-type = ["cdylib", "staticlib"]
+
+[dependencies]
+gdnative = "0.9.3"
+tungstenite = "0.13.0"
+json = "0.12.4"
+nalgebra = "*"
+url = "2.2.0"
+# gdnative = { path = "../../godot-rust/gdnative" }

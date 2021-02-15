@@ -1,0 +1,14 @@
+[gd_scene load_steps=2 format=2]
+
+[ext_resource path="res://native/Game.gdns" type="Script" id=1]
+
+[node name="Game" type="Node"]
+script = ExtResource( 1 )
+
+[node name="RichTextLabel" type="RichTextLabel" parent="."]
+margin_right = 40.0
+margin_bottom = 40.0
+text = "fsdfsdfsfsfsfs"
+__meta__ = {
+"_edit_use_anchors_": false
+}
