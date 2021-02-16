@@ -9,6 +9,7 @@ use gdnative::prelude::*;
 pub struct Game {
     name: String,
     values: Values,
+    rx: Option<Receiver<json::JsonValue>>,
 }
 
 struct Values {
@@ -16,11 +17,16 @@ struct Values {
     points: Vec<f32>,
 }
 
-use std::thread::spawn;
-use std::{thread, time, sync::{Arc, Mutex}};
-use tungstenite::{connect, Message, Error};
-use url::Url;
 use ::json;
+use std::sync::mpsc;
+use std::sync::mpsc::{Receiver, Sender};
+use std::thread::spawn;
+use std::{
+    sync::{Arc, Mutex},
+    thread, time,
+};
+use tungstenite::{connect, Error, Message};
+use url::Url;
 
 // __One__ `impl` block can have the `#[methods]` attribute, which will generate
 // code to automatically bind any exported methods to Godot.
@@ -47,15 +53,29 @@ impl Game {
                 usage: PropertyUsage::DEFAULT,
             }],
         });
-    }
 
+        builder.add_signal(Signal {
+            name: "position",
+            // Argument list used by the editor for GUI and generation of GDScript handlers. It can be omitted if the signal is only used from code.
+            args: &[SignalArgument {
+                name: "data",
+                default: Variant::from_vector3(&Vector3::new(0., 0., 0.)),
+                export_info: ExportInfo::new(VariantType::Vector3),
+                usage: PropertyUsage::DEFAULT,
+            }],
+        });
+    }
 
     /// The "constructor" of the class.
     fn new(_owner: &Node) -> Self {
         godot_print!("Game is created!");
         Game {
             name: "".to_string(),
-            values: Values { position: vec![0.,1.,2.], points: vec![1.,2.,3.]}
+            values: Values {
+                position: vec![0., 1., 2.],
+                points: vec![1., 2., 3.],
+            },
+            rx: None,
         }
     }
 
@@ -79,7 +99,10 @@ impl Game {
         // ref_im.as_ref().begin(Mesh::PRIMITIVE_POINTS, AsArg);
         let owner = Arc::new(Mutex::new(_owner.as_ref()));
         let o = Arc::clone(&owner);
-        
+
+        let (tx, rx): (Sender<json::JsonValue>, Receiver<json::JsonValue>) = mpsc::channel();
+        self.rx = Some(rx);
+        let thread_tx = tx.clone();
         spawn(move || {
             loop {
                 println!("Connecting...");
@@ -91,34 +114,27 @@ impl Game {
                     for (ref header, _value) in response.headers() {
                         println!("* {}", header);
                     }
-                    
-                    socket.write_message(Message::Text("Hello WebSocket".into())).unwrap();
+
+                    socket
+                        .write_message(Message::Text("Hello WebSocket".into()))
+                        .unwrap();
                     loop {
                         match socket.read_message() {
-                            Ok(msg) => {
-                                match msg {
-                                    Message::Text(msg) => {
-                                        let msg = json::parse(&msg).unwrap();
-                                        println!("Received: {}", msg["type"]);
-                                        if msg["type"] == "position" {
-                                            let x: f32 = msg["x"].as_f32().unwrap();
-                                            let y: f32 = msg["y"].as_f32().unwrap();
-                                            let z: f32 = msg["z"].as_f32().unwrap();
-                                            let mut o2 = o.lock().unwrap();
-                                            // println!("set x to {}", x);
-                                            // o2.values.position = vec![x,y,z];
-                                            
-                                            // _owner.as_ref().emit_signal("tick", &[]);
-                                            // _owner.emit_signal("tick_with_data", &[Variant::from_i64(x as i64)]);
-                                        }
-                                    }
-                                    _ => println!("not a text message {}", msg)
+                            Ok(msg) => match msg {
+                                Message::Text(msg) => {
+                                    let msg = json::parse(&msg).unwrap();
+                                    println!("Received: {}", msg["type"]);
+                                    thread_tx.send(msg).unwrap();
                                 }
+                                _ => println!("not a text message {}", msg),
                             },
                             Err(e) => {
                                 println!("READ ERR {:?} {}", e, e);
                                 match e {
-                                    Error::AlreadyClosed | Error::ConnectionClosed | Error::Io(_) | Error::Protocol(_) => {
+                                    Error::AlreadyClosed
+                                    | Error::ConnectionClosed
+                                    | Error::Io(_)
+                                    | Error::Protocol(_) => {
                                         println!("Connection closed. Reconnect...");
                                         break; // reconnect
                                     }
@@ -130,8 +146,7 @@ impl Game {
                             }
                         }
                     }
-                }
-                else if let Err(err) = connection {
+                } else if let Err(err) = connection {
                     println!("{:?}\nwait...", err);
                     thread::sleep(time::Duration::from_secs(2));
                 }
@@ -142,8 +157,23 @@ impl Game {
     // This function will be called in every frame
     #[export]
     unsafe fn _process(&self, _owner: &Node, delta: f64) {
-        _owner.emit_signal("tick", &[]);
-        _owner.emit_signal("tick_with_data", &[Variant::from_i64(self.values.position[0] as i64)]);
-        godot_print!("Inside {} _process(), delta is {} {}", self.name, delta, self.values.position[0]);
+        if let Some(rx) = &self.rx {
+            _owner.emit_signal("tick", &[]);
+            while let Ok(msg) = rx.try_recv() {
+                println!("MSG IS {}", msg["type"]);
+                if msg["type"] == "position" {
+                    _owner.emit_signal(
+                        "position",
+                        &[Variant::from_vector3(&Vector3::new(
+                            msg["x"].as_f32().unwrap(),
+                            msg["y"].as_f32().unwrap(),
+                            msg["z"].as_f32().unwrap(),
+                        ))],
+                    );
+                }
+                // _owner.emit_signal("tick_with_data", &[Variant::from_i64(x as i64)]);
+            }
+        }
+        // godot_print!("Inside {} _process(), delta is {} {}", self.name, delta, self.values.position[0]);
     }
 }

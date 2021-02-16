@@ -1,6 +1,7 @@
-[gd_scene load_steps=2 format=2]
+[gd_scene load_steps=3 format=2]
 
 [ext_resource path="res://native/Game.gdns" type="Script" id=1]
+[ext_resource path="res://scenes/Line2D.vs" type="Script" id=2]
 
 [node name="Game" type="Node"]
 script = ExtResource( 1 )
@@ -12,3 +13,8 @@ text = "fsdfsdfsfsfsfs"
 __meta__ = {
 "_edit_use_anchors_": false
 }
+
+[node name="Line2D" type="Line2D" parent="."]
+points = PoolVector2Array( 2.31531, 4.0293 )
+script = ExtResource( 2 )
+[connection signal="position" from="." to="Line2D" method="_on_Game_position"]
