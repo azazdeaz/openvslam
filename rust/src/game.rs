@@ -64,6 +64,17 @@ impl Game {
                 usage: PropertyUsage::DEFAULT,
             }],
         });
+
+        builder.add_signal(Signal {
+            name: "points",
+            // Argument list used by the editor for GUI and generation of GDScript handlers. It can be omitted if the signal is only used from code.
+            args: &[SignalArgument {
+                name: "data",
+                default: Variant::from_vector3_array(&TypedArray::default()),
+                export_info: ExportInfo::new(VariantType::Vector3Array),
+                usage: PropertyUsage::DEFAULT,
+            }],
+        });
     }
 
     /// The "constructor" of the class.
@@ -169,6 +180,18 @@ impl Game {
                             msg["y"].as_f32().unwrap(),
                             msg["z"].as_f32().unwrap(),
                         ))],
+                    );
+                }
+                else if msg["type"] == "points" {
+                    let points: Vec<f32> = msg["points"].members().map(|n| n.as_f32().unwrap()).collect();
+                    let mut vectors: TypedArray<Vector3> = TypedArray::default();
+                    let point_count = points.len() / 3;
+                    for i in 0..point_count {
+                        vectors.push(Vector3::new(points[i], points[i+point_count], points[i+point_count*2]))
+                    }
+                    _owner.emit_signal(
+                        "points",
+                        &[Variant::from_vector3_array(&vectors)],
                     );
                 }
                 // _owner.emit_signal("tick_with_data", &[Variant::from_i64(x as i64)]);

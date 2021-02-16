@@ -1,7 +1,16 @@
-[gd_scene load_steps=3 format=2]
+[gd_scene load_steps=8 format=2]
 
 [ext_resource path="res://native/Game.gdns" type="Script" id=1]
 [ext_resource path="res://scenes/Line2D.vs" type="Script" id=2]
+[ext_resource path="res://scenes/Spatial.gd" type="Script" id=3]
+[ext_resource path="res://scenes/Camera.vs" type="Script" id=4]
+[ext_resource path="res://addons/kenney_prototype_textures/dark/texture_09.png" type="Texture" id=5]
+
+[sub_resource type="PlaneMesh" id=1]
+
+[sub_resource type="SpatialMaterial" id=2]
+albedo_texture = ExtResource( 5 )
+uv1_scale = Vector3( 100, 100, 100 )
 
 [node name="Game" type="Node"]
 script = ExtResource( 1 )
@@ -17,4 +26,22 @@ __meta__ = {
 [node name="Line2D" type="Line2D" parent="."]
 points = PoolVector2Array( 2.31531, 4.0293 )
 script = ExtResource( 2 )
+
+[node name="Spatial" type="Spatial" parent="."]
+script = ExtResource( 3 )
+
+[node name="Spatial2" type="Spatial" parent="."]
+script = ExtResource( 3 )
+
+[node name="Camera" type="Camera" parent="."]
+transform = Transform( 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 46.6223, 0 )
+far = 334.8
+script = ExtResource( 4 )
+
+[node name="CSGMesh" type="CSGMesh" parent="."]
+transform = Transform( 252.232, 0, 0, 0, 100, 0, 0, 0, 354.295, 0, 0, 0 )
+mesh = SubResource( 1 )
+material = SubResource( 2 )
+[connection signal="position" from="." to="Spatial" method="_on_Game_position"]
 [connection signal="position" from="." to="Line2D" method="_on_Game_position"]
+[connection signal="position" from="." to="Camera" method="_on_Game_position"]
