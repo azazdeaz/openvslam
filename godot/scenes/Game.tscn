@@ -1,10 +1,16 @@
-[gd_scene load_steps=8 format=2]
+[gd_scene load_steps=10 format=2]
 
 [ext_resource path="res://native/Game.gdns" type="Script" id=1]
 [ext_resource path="res://scenes/Line2D.vs" type="Script" id=2]
 [ext_resource path="res://scenes/Spatial.gd" type="Script" id=3]
 [ext_resource path="res://scenes/Camera.vs" type="Script" id=4]
 [ext_resource path="res://addons/kenney_prototype_textures/dark/texture_09.png" type="Texture" id=5]
+[ext_resource path="res://scenes/Frames.vs" type="Script" id=6]
+
+[sub_resource type="SpatialMaterial" id=3]
+flags_use_point_size = true
+params_point_size = 4.9
+albedo_color = Color( 0.329412, 0.87451, 0.231373, 1 )
 
 [sub_resource type="PlaneMesh" id=1]
 
@@ -27,8 +33,12 @@ __meta__ = {
 points = PoolVector2Array( 2.31531, 4.0293 )
 script = ExtResource( 2 )
 
-[node name="Spatial" type="Spatial" parent="."]
-script = ExtResource( 3 )
+[node name="Frames" type="Spatial" parent="."]
+script = ExtResource( 6 )
+
+[node name="ImmediateGeometry" type="ImmediateGeometry" parent="Frames"]
+layers = 2147483649
+material_override = SubResource( 3 )
 
 [node name="Spatial2" type="Spatial" parent="."]
 script = ExtResource( 3 )
@@ -42,6 +52,7 @@ script = ExtResource( 4 )
 transform = Transform( 252.232, 0, 0, 0, 100, 0, 0, 0, 354.295, 0, 0, 0 )
 mesh = SubResource( 1 )
 material = SubResource( 2 )
-[connection signal="position" from="." to="Spatial" method="_on_Game_position"]
-[connection signal="position" from="." to="Line2D" method="_on_Game_position"]
+[connection signal="points" from="." to="Spatial2" method="_on_Game_points"]
 [connection signal="position" from="." to="Camera" method="_on_Game_position"]
+[connection signal="position" from="." to="Line2D" method="_on_Game_position"]
+[connection signal="position" from="." to="Frames" method="_on_Game_position"]
