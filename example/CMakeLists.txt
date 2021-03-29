@@ -1,5 +1,8 @@
 # ----- Find dependencies -----
 
+#find cppzmq wrapper, installed by make of cppzmq
+find_package(cppzmq)
+
 # popl
 set(popl_INCLUDE_DIR ${PROJECT_SOURCE_DIR}/3rd/popl/include)
 
@@ -65,6 +68,9 @@ list(APPEND EXECUTABLE_TARGETS run_kitti_slam)
 add_executable(run_tum_rgbd_slam run_tum_rgbd_slam.cc util/tum_rgbd_util.cc)
 list(APPEND EXECUTABLE_TARGETS run_tum_rgbd_slam)
 
+add_executable(run_zmq_image_slam run_zmq_image_slam.cc util/image_util.cc)
+list(APPEND EXECUTABLE_TARGETS run_zmq_image_slam)
+
 foreach(EXECUTABLE_TARGET IN LISTS EXECUTABLE_TARGETS)
     # Set output directory for executables
     set_target_properties(${EXECUTABLE_TARGET} PROPERTIES
@@ -99,10 +105,14 @@ foreach(EXECUTABLE_TARGET IN LISTS EXECUTABLE_TARGETS)
         target_link_libraries(${EXECUTABLE_TARGET} PRIVATE ${GPERFTOOLS_LIBRARIES})
     endif()
 
+    
+    # target_link_libraries(${EXECUTABLE_TARGET} cppzmq)
+
     # Link OpenVSLAM
     target_link_libraries(${EXECUTABLE_TARGET}
                           PRIVATE
                           ${PROJECT_NAME}
+                          cppzmq
                           opencv_imgcodecs
                           opencv_videoio)
 
