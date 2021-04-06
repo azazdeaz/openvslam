@@ -105,8 +105,6 @@ foreach(EXECUTABLE_TARGET IN LISTS EXECUTABLE_TARGETS)
         target_link_libraries(${EXECUTABLE_TARGET} PRIVATE ${GPERFTOOLS_LIBRARIES})
     endif()
 
-    
-    # target_link_libraries(${EXECUTABLE_TARGET} cppzmq)
 
     # Link OpenVSLAM
     target_link_libraries(${EXECUTABLE_TARGET}

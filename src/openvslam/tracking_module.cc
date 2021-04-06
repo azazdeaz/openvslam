@@ -226,6 +226,7 @@ void tracking_module::track() {
         if (tracking_state_ == tracker_state_t::Lost
             && curr_frm_.id_ - initializer_.get_initial_frame_id() < camera_->fps_ * init_retry_thr) {
             spdlog::info("tracking lost within {} sec after initialization", init_retry_thr);
+            spdlog::info("initializer_.get_initial_frame_id() {} curr_frm_.id_ {}", initializer_.get_initial_frame_id(), curr_frm_.id_);
             system_->request_reset();
             return;
         }

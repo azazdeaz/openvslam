@@ -2,6 +2,8 @@
 
 #include <spdlog/spdlog.h>
 
+
+
 namespace socket_publisher {
 
 socket_client::socket_client(const std::string& server_uri)
@@ -11,10 +13,35 @@ socket_client::socket_client(const std::string& server_uri)
     client_.set_close_listener(std::bind(&socket_client::on_close, this));
     client_.set_fail_listener(std::bind(&socket_client::on_fail, this));
 
+    // // create an instance of your own tcp handler
+    // MyTcpHandler myHandler;
+
+    // // address of the server
+    // AMQP::Address address("amqp://localhost/");
+
+    // // create a AMQP connection object
+    // AMQP::TcpConnection connection(&myHandler, address);
+
+    // // and create a channel
+    // AMQP::TcpChannel channel(&connection);
+
+    // // // use the channel object to call the AMQP method you like
+    // channel.declareExchange("my-exchange", AMQP::fanout);
+    // channel.declareQueue("my-queue");
+    // channel.bindQueue("my-exchange", "my-queue", "my-routing-key");
+
+    // channel.startTransaction();
+
+    // int pubVal = channel.publish("my-exchange", "my-routing-key", "masssage");
+
     // start connection
     client_.connect(server_uri);
     // get socket
     socket_ = client_.socket();
+
+    ctx_ = zmq::context_t(1);
+    publisher_ = zmq::socket_t(ctx_, zmq::socket_type::pub);
+    publisher_.bind("tcp://*:5566");
 
     socket_->on("signal", std::bind(&socket_client::on_receive, this, std::placeholders::_1));
 }

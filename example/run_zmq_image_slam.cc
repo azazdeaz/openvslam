@@ -18,7 +18,7 @@
 #include <fstream>
 #include <numeric>
 
-#include <opencv2/core/core.hpp>
+#include <opencv2/core/core.hpp> 
 #include <opencv2/imgcodecs.hpp>
 #include <opencv2/opencv.hpp>
 #include <spdlog/spdlog.h>
@@ -32,35 +32,9 @@
 #include <gperftools/profiler.h>
 #endif
 
-void SubscriberThread(zmq::context_t *ctx) {
-    std::cout << "subscriber thread..." << std::endl;
-    //  Prepare subscriber
-    zmq::socket_t subscriber(*ctx, zmq::socket_type::sub);
-    subscriber.connect("tcp://192.168.50.234:5560");
-    
-    //  Thread3 opens ALL envelopes
-    subscriber.set(zmq::sockopt::subscribe, "");
-    std::this_thread::sleep_for(std::chrono::milliseconds(20));
-
-    std::cout << "before while..." << std::endl;
-    std::this_thread::sleep_for(std::chrono::milliseconds(20));
-    while (true) {
-        std::cout << "waiting for image..." << std::endl;
-        std::this_thread::sleep_for(std::chrono::milliseconds(20));
-        // Receive all parts of the message
-        std::vector<zmq::message_t> recv_msgs;
-        zmq::recv_result_t result =
-          zmq::recv_multipart(subscriber, std::back_inserter(recv_msgs));
-        assert(result && "recv failed");
-        assert(*result == 2);
-
-        std::cout << "Thread2: [" << recv_msgs[0].to_string() << "] "
-                  << recv_msgs[1].to_string() << std::endl;
-    }
-}
 
 void mono_tracking(const std::shared_ptr<openvslam::config>& cfg,
-                   const std::string& vocab_file_path, const std::string& image_dir_path, const std::string& mask_img_path,
+                   const std::string& vocab_file_path, const std::string& mask_img_path,
                    const unsigned int frame_skip, const bool no_sleep, const bool auto_term,
                    const bool eval_log, const std::string& map_db_path) {
     zmq::context_t ctx(1);
@@ -71,11 +45,16 @@ void mono_tracking(const std::shared_ptr<openvslam::config>& cfg,
     // load the mask image
     const cv::Mat mask = mask_img_path.empty() ? cv::Mat{} : cv::imread(mask_img_path, cv::IMREAD_GRAYSCALE);
 
-    const image_sequence sequence(image_dir_path, cfg->camera_->fps_);
-    const auto frames = sequence.get_frames();
+    // const image_sequence sequence(image_dir_path, cfg->camera_->fps_);
+    // const auto frames = sequence.get_frames();
 
     // build a SLAM system
     openvslam::system SLAM(cfg, vocab_file_path);
+    // load the prebuilt map
+    if (!map_db_path.empty()) {
+        std::cout << "loading map..." << std::endl;
+        SLAM.load_map_database(map_db_path);
+    }
     // startup the SLAM process
     SLAM.startup();
 
@@ -86,7 +65,7 @@ void mono_tracking(const std::shared_ptr<openvslam::config>& cfg,
 #endif
 
     std::vector<double> track_times;
-    track_times.reserve(frames.size());
+    // track_times.reserve(frames.size());
 
     // run the SLAM in another thread
     std::thread thread([&]() {
@@ -102,7 +81,7 @@ void mono_tracking(const std::shared_ptr<openvslam::config>& cfg,
         std::cout << "before while..." << std::endl;
         std::this_thread::sleep_for(std::chrono::milliseconds(20));
         while (true) {
-            std::cout << "waiting for image..." << std::endl;
+            // std::cout << "waiting for image..." << std::endl;
             std::this_thread::sleep_for(std::chrono::milliseconds(20));
             // Receive all parts of the message
             std::vector<zmq::message_t> recv_msgs;
@@ -110,14 +89,15 @@ void mono_tracking(const std::shared_ptr<openvslam::config>& cfg,
                 zmq::recv_multipart(subscriber, std::back_inserter(recv_msgs));
             assert(result && "recv failed");
 
-            std::cout << "Got " << *result
-                    << " messages" << std::endl;
+            // std::cout << "Got " << *result
+            //         << " messages" << std::endl;
             assert(*result == 2);
 
             auto msg0 = recv_msgs[0].to_string();
             std::vector<char> imdata(msg0.begin(), msg0.end());
             auto img = cv::imdecode(imdata, cv::IMREAD_ANYCOLOR);
-            std::cout << "got image" <<std::endl;
+
+            // std::cout << "got image" <<std::endl;
             // std::cout << "Thread2: [" << recv_msgs[0].to_string() << "] "
             //         << recv_msgs[1].to_string() << std::endl;
         // }
@@ -225,7 +205,6 @@ int main(int argc, char* argv[]) {
     popl::OptionParser op("Allowed options");
     auto help = op.add<popl::Switch>("h", "help", "produce help message");
     auto vocab_file_path = op.add<popl::Value<std::string>>("v", "vocab", "vocabulary file path");
-    auto img_dir_path = op.add<popl::Value<std::string>>("i", "img-dir", "directory path which contains images", "");
     auto config_file_path = op.add<popl::Value<std::string>>("c", "config", "config file path");
     auto mask_img_path = op.add<popl::Value<std::string>>("", "mask", "mask image path", "");
     auto frame_skip = op.add<popl::Value<unsigned int>>("", "frame-skip", "interval of frame skip", 1);
@@ -249,7 +228,7 @@ int main(int argc, char* argv[]) {
         std::cerr << op << std::endl;
         return EXIT_FAILURE;
     }
-    if (!vocab_file_path->is_set() || !img_dir_path->is_set() || !config_file_path->is_set()) {
+    if (!vocab_file_path->is_set() || !config_file_path->is_set()) {
         std::cerr << "invalid arguments" << std::endl;
         std::cerr << std::endl;
         std::cerr << op << std::endl;
@@ -281,7 +260,7 @@ int main(int argc, char* argv[]) {
 
     // run tracking
     if (cfg->camera_->setup_type_ == openvslam::camera::setup_type_t::Monocular) {
-        mono_tracking(cfg, vocab_file_path->value(), img_dir_path->value(), mask_img_path->value(),
+        mono_tracking(cfg, vocab_file_path->value(), mask_img_path->value(),
                       frame_skip->value(), no_sleep->is_set(), auto_term->is_set(),
                       eval_log->is_set(), map_db_path->value());
     }

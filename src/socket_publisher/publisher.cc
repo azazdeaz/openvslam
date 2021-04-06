@@ -3,6 +3,7 @@
 #include "openvslam/system.h"
 #include "openvslam/publish/frame_publisher.h"
 
+
 namespace socket_publisher {
 
 publisher::publisher(const std::shared_ptr<openvslam::config>& cfg, openvslam::system* system,
@@ -11,13 +12,14 @@ publisher::publisher(const std::shared_ptr<openvslam::config>& cfg, openvslam::s
     : system_(system),
       emitting_interval_(cfg->yaml_node_["SocketPublisher.emitting_interval"].as<unsigned int>(15000)),
       image_quality_(cfg->yaml_node_["SocketPublisher.image_quality"].as<unsigned int>(20)),
-      client_(new socket_client(cfg->yaml_node_["SocketPublisher.server_uri"].as<std::string>("http://127.0.0.1:3000"))) {
+      client_(new socket_client(cfg->yaml_node_["SocketPublisher.server_uri"].as<std::string>("http://192.168.50.111:3003"))) {
     const auto camera = cfg->camera_;
     const auto img_cols = (camera->cols_ < 1) ? 640 : camera->cols_;
     const auto img_rows = (camera->rows_ < 1) ? 480 : camera->rows_;
     data_serializer_ = std::unique_ptr<data_serializer>(new data_serializer(frame_publisher, map_publisher, img_cols, img_rows));
 
     client_->set_signal_callback(std::bind(&publisher::callback, this, std::placeholders::_1));
+    client_->emit("hali", "bali");
 }
 
 void publisher::run() {
@@ -28,9 +30,11 @@ void publisher::run() {
     client_->emit("map_publish", serialized_reset_signal);
 
     while (true) {
+        client_->emit("hali", "bali2");
         const auto t0 = std::chrono::system_clock::now();
 
         const auto serialized_map_data = data_serializer_->serialize_map_diff();
+
         if (!serialized_map_data.empty()) {
             client_->emit("map_publish", serialized_map_data);
         }
