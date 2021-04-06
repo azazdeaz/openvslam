@@ -14,4 +14,19 @@ async-tungstenite = "0.13.0"
 json = "0.12.4"
 nalgebra = "*"
 url = "2.2.0"
+zmq = "0.9"
+protobuf = "2.22.1"
+prost = "0.7.0"
+base64 = "0.13.0"
 # gdnative = { path = "../../godot-rust/gdnative" }
+
+[build-dependencies]
+protoc-rust = "2.22.1"
+prost-build = { version = "0.7.0" }
+protobuf-codegen-pure = "2.22.1"
+
+# [[bin]]
+# name = "proto-gen"
+# path = "src/proto_gen.rs"
+
+

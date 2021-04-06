@@ -4,7 +4,7 @@ build-debug:
 	# make build-i686-linux-android-debug
 	# make build-x86_64-linux-android-debug
 	# make build-i686-unknown-linux-gnu-debug
-	# make build-x86_64-unknown-linux-gnu-debug
+	make build-x86_64-unknown-linux-gnu-debug
 	# make build-x86_64-apple-darwin-debug
 	# make build-aarch64-apple-ios-debug
 

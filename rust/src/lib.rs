@@ -2,6 +2,10 @@ mod game;
 
 use gdnative::prelude::{godot_init, InitHandle};
 
+pub mod items {
+    include!(concat!(env!("OUT_DIR"), "/map_segment.rs"));
+}
+
 // Function that registers all exposed classes to Godot
 fn init(handle: InitHandle) {
     handle.add_class::<game::Game>();
