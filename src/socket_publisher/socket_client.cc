@@ -9,6 +9,7 @@ namespace socket_publisher {
 socket_client::socket_client(const std::string& server_uri)
     : client_(), callback_() {
     // register socket callbacks
+    spdlog::info(server_uri);
     client_.set_open_listener(std::bind(&socket_client::on_open, this));
     client_.set_close_listener(std::bind(&socket_client::on_close, this));
     client_.set_fail_listener(std::bind(&socket_client::on_fail, this));

@@ -26,7 +26,6 @@ public:
     void emit(const std::string tag, const std::string buffer) {
         socket_->emit(tag, buffer);
         if (tag == "map_publish") {
-            std::cout << "MAP_PUB:";
             publisher_.send(zmq::buffer(buffer), zmq::send_flags::dontwait);
         }
         else if (tag == "frame_publish") {
