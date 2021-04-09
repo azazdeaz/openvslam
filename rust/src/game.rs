@@ -1,7 +1,5 @@
 use gdnative::api::*;
 use gdnative::prelude::*;
-use ndarray::prelude::*;
-
 
 
 /// The Game "class"
@@ -27,10 +25,12 @@ struct Landmark {
     y: f64,
     z: f64,
 }
+
 struct Values {
     position: Vec<f32>,
     points: Vec<f32>,
     landmarks: HashMap<u32, Landmark>,
+    keyframes: HashMap<u32, TypedArray<Vector3>>,
 }
 
 use std::sync::mpsc;
@@ -46,23 +46,32 @@ use zmq;
 
 extern crate nalgebra as na;
 
+use ndarray::prelude::*;
+use ndarray::{Array, Axis, stack, OwnedRepr};
+
 // #[path = "protos/map_segment.rs"]
 // mod map_segment;
 // use map_segment::Map;
 // use protobuf;
 
 
-fn keyframe_vertices() -> na::Matrix3xX<f64> {
+fn keyframe_vertices() -> ArrayBase<OwnedRepr<f64>, ndarray::Dim<[usize; 2]>> {
     let f = 1.0;
     let cx = 2.0;
     let cy = 1.0;
-    let c = na::Vector3::new(0.0,0.0,0.0);
-    let tl = na::Vector3::new(-cx,cy,f);
-    let tr = na::Vector3::new(cx,cy,f);
-    let br = na::Vector3::new(cx,-cy,f);
-    let bl = na::Vector3::new(-cx,-cy,f);
+    // let c = na::Vector3::new(0.0,0.0,0.0);
+    // let tl = na::Vector3::new(-cx,cy,f);
+    // let tr = na::Vector3::new(cx,cy,f);
+    // let br = na::Vector3::new(cx,-cy,f);
+    // let bl = na::Vector3::new(-cx,-cy,f);
+    let c = array![0.0,0.0,0.0];
+    let tl = array![-cx,cy,f];
+    let tr = array![cx,cy,f];
+    let br = array![cx,-cy,f];
+    let bl = array![-cx,-cy,f];
+    stack![Axis(1), c,tl,tr,c,tr,br,c,br,bl,c,bl,tl]
 
-    na::Matrix3xX::from_columns(&[c,tl,tr,c,tr,br,c,br,bl,c,bl,tl])  
+    // na::Matrix3xX::from_columns(&[c,tl,tr,c,tr,br,c,br,bl,c,bl,tl])  
 }
 
 // __One__ `impl` block can have the `#[methods]` attribute, which will generate
@@ -130,7 +139,19 @@ impl Game {
             // Argument list used by the editor for GUI and generation of GDScript handlers. It can be omitted if the signal is only used from code.
             args: &[SignalArgument {
                 name: "data",
-                default: Variant::from_vector3_array(&TypedArray::default()),
+                default: Variant::from_array(&VariantArray::new_shared()),
+                export_info: ExportInfo::new(VariantType::Vector3Array),
+                usage: PropertyUsage::DEFAULT,
+            }],
+        });
+
+
+        builder.add_signal(Signal {
+            name: "edges",
+            // Argument list used by the editor for GUI and generation of GDScript handlers. It can be omitted if the signal is only used from code.
+            args: &[SignalArgument {
+                name: "data",
+                default: Variant::from_array(&VariantArray::new_shared()),
                 export_info: ExportInfo::new(VariantType::Vector3Array),
                 usage: PropertyUsage::DEFAULT,
             }],
@@ -157,6 +178,7 @@ impl Game {
                 position: vec![0., 1., 2.],
                 points: vec![1., 2., 3.],
                 landmarks: HashMap::new(),
+                keyframes: HashMap::new(),
             },
             rx: None,
         }
@@ -264,6 +286,10 @@ impl Game {
     // This function will be called in every frame
     #[export]
     unsafe fn _process(&mut self, _owner: &Node, delta: f64) {
+
+        
+
+        
         // let mut vectors: TypedArray<Vector3> = TypedArray::default();
         // for x in -20..=20 {
         //     for y in -20..=20 {
@@ -278,9 +304,11 @@ impl Game {
         //     "points",
         //     &[Variant::from_vector3_array(&vectors)],
         // );
-
+        
+        let mut edges = None;
         if let Some(rx) = &self.rx {
             _owner.emit_signal("tick", &[]);
+            
             while let Ok(msg) = rx.try_recv() {
                 for landmark in msg.landmarks.iter() {
                     if landmark.coords.len() != 0 {
@@ -297,15 +325,7 @@ impl Game {
                     // println!("landmark {:?}", landmark.color);
                     // vectors.push(landmark.coords);
                 }
-                let mut vectors: TypedArray<Vector3> = TypedArray::default();
-                for landmark in self.values.landmarks.values() {
-                    vectors.push(Vector3::new(landmark.x as f32, landmark.y as f32, landmark.z as f32));
-                }
                 
-                _owner.emit_signal(
-                    "points",
-                    &[Variant::from_vector3_array(&vectors)],
-                );
 
                 for message in msg.messages.iter() {
                     let text = format!("[{}]: {}", message.tag, message.txt);
@@ -319,22 +339,27 @@ impl Game {
                 for keyframe in msg.keyframes.iter() {
                     println!("keyframe {} {:?}", keyframe.id, keyframe.pose);
                     if let Some(pose) = &keyframe.pose {
-                        let mat = na::Matrix4::from_row_slice(&pose.pose);
-                        let rotation = mat.fixed_slice::<na::U3,na::U3>(0,0);
-                        let translation = mat.column(3).remove_row(3);
-                        let vertices = (rotation * keyframe_vertices());
-                        let vertices = vertices + translation.transpose();
-                        
-                        
+                        let pose = pose.pose.to_vec();
+                        let pose = Array::from_vec(pose).into_shape((4,4)).unwrap();
+                        let rotation = pose.slice(s![0..3,0..3]);
+                        let translation = pose.slice(s![0..3,3..4]);
+
+                        let vertices = rotation.dot(&keyframe_vertices())+translation; 
+
                         let mut vectors: TypedArray<Vector3> = TypedArray::default();
-                        for v in vertices.into::<Matrix<f64,na::U3,na::D().column_iter() {
-                            vectors.push(Vector3::new(v[0] as f32, v[1] as f32, v[2] as f32));
+                        for v in vertices.axis_iter(Axis(1)) {
+                            vectors.push(Vector3::new(v[0] as f32,v[1] as f32,v[2] as f32));
                         }
+
+                        self.values.keyframes.insert(keyframe.id, vectors);
                     }
                     else {
-                        // TODO remove keyframe
+                        self.values.keyframes.remove(&keyframe.id);
                     }
                 }
+
+                edges = Some(msg.edges);
+
                 // _owner.emit_signal("dry_protobuf", &[msg.to_variant()]);
                 // println!("MSG IS {}", msg);
                 // if msg["type"] == "position" {
@@ -361,6 +386,41 @@ impl Game {
                 // }
                 // _owner.emit_signal("tick_with_data", &[Variant::from_i64(x as i64)]);
             }
+        }
+
+        let data = self.values.keyframes.values().cloned().collect::<Vec<TypedArray<Vector3>>>().to_variant();
+        _owner.emit_signal(
+            "keyframe_vertices",
+            &[data],
+        );
+
+        let mut vectors: TypedArray<Vector3> = TypedArray::default();
+        for landmark in self.values.landmarks.values() {
+            vectors.push(Vector3::new(landmark.x as f32, landmark.y as f32, landmark.z as f32));
+        }
+        
+        _owner.emit_signal(
+            "points",
+            &[Variant::from_vector3_array(&vectors)],
+        );
+        
+        if let Some(edges_) = edges {
+            println!("{:?}", edges_);
+            let lines = edges_.iter().filter_map(|e| {
+                let k0 = self.values.keyframes.get(&e.id0);
+                let k1 = self.values.keyframes.get(&e.id1);
+                if let (Some(k0), Some(k1)) = (k0, k1) {
+                    Some(vec![k0.get(0), k1.get(0)])
+                }
+                else {
+                    None
+                }
+            }).collect::<Vec<Vec<Vector3>>>();
+
+            _owner.emit_signal(
+                "edges",
+                &[lines.to_variant()],
+            );
         }
         // godot_print!("Inside {} _process(), delta is {} {}", self.name, delta, self.values.position[0]);
     }

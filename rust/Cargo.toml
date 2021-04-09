@@ -19,6 +19,7 @@ zmq = "0.9"
 protobuf = "2.22.1"
 prost = "0.7.0"
 base64 = "0.13.0"
+hashbrown = "*"
 # gdnative = { path = "../../godot-rust/gdnative" }
 
 [build-dependencies]

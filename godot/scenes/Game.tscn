@@ -1,4 +1,4 @@
-[gd_scene load_steps=14 format=2]
+[gd_scene load_steps=15 format=2]
 
 [ext_resource path="res://native/Game.gdns" type="Script" id=1]
 [ext_resource path="res://scenes/Line2D.vs" type="Script" id=2]
@@ -9,6 +9,7 @@
 [ext_resource path="res://addons/goutte.camera.trackball/trackball_camera.gd" type="Script" id=7]
 [ext_resource path="res://scenes/ShowMessages.vs" type="Script" id=8]
 [ext_resource path="res://scenes/Keyframes.gd" type="Script" id=9]
+[ext_resource path="res://scenes/Edges.gd" type="Script" id=10]
 
 [sub_resource type="SpatialMaterial" id=1]
 flags_use_point_size = true
@@ -53,6 +54,9 @@ material_override = SubResource( 1 )
 [node name="ImmediateGeometry2" type="ImmediateGeometry" parent="Spatial/Frames"]
 script = ExtResource( 9 )
 
+[node name="Edges" type="ImmediateGeometry" parent="Spatial/Frames"]
+script = ExtResource( 10 )
+
 [node name="Spatial2" type="Spatial" parent="Spatial"]
 script = ExtResource( 3 )
 
@@ -92,6 +96,8 @@ __meta__ = {
 "_edit_use_anchors_": false
 }
 [connection signal="dry_protobuf" from="." to="Spatial" method="_on_Game_dry_protobuf"]
+[connection signal="edges" from="." to="Spatial/Frames/Edges" method="_on_Game_edges"]
+[connection signal="keyframe_vertices" from="." to="Spatial/Frames/ImmediateGeometry2" method="_on_Game_keyframe_vertices"]
 [connection signal="message" from="." to="Control/RichTextLabel" method="_on_Game_message"]
 [connection signal="points" from="." to="Spatial/Spatial2" method="_on_Game_points"]
 [connection signal="position" from="." to="Spatial/Frames" method="_on_Game_position"]
