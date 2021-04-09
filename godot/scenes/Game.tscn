@@ -5,11 +5,11 @@
 [ext_resource path="res://scenes/Spatial.gd" type="Script" id=3]
 [ext_resource path="res://scenes/Camera.vs" type="Script" id=4]
 [ext_resource path="res://addons/kenney_prototype_textures/dark/texture_09.png" type="Texture" id=5]
-[ext_resource path="res://scenes/Frames.vs" type="Script" id=6]
 [ext_resource path="res://addons/goutte.camera.trackball/trackball_camera.gd" type="Script" id=7]
 [ext_resource path="res://scenes/ShowMessages.vs" type="Script" id=8]
 [ext_resource path="res://scenes/Keyframes.gd" type="Script" id=9]
 [ext_resource path="res://scenes/Edges.gd" type="Script" id=10]
+[ext_resource path="res://scenes/Landmarks.gd" type="Script" id=11]
 
 [sub_resource type="SpatialMaterial" id=1]
 flags_use_point_size = true
@@ -45,11 +45,11 @@ transform = Transform( 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 18.7554 )
 visible = false
 
 [node name="Frames" type="Spatial" parent="Spatial"]
-script = ExtResource( 6 )
 
-[node name="ImmediateGeometry" type="ImmediateGeometry" parent="Spatial/Frames"]
+[node name="Landmarks" type="ImmediateGeometry" parent="Spatial/Frames"]
 layers = 2147483649
 material_override = SubResource( 1 )
+script = ExtResource( 11 )
 
 [node name="ImmediateGeometry2" type="ImmediateGeometry" parent="Spatial/Frames"]
 script = ExtResource( 9 )
@@ -99,7 +99,7 @@ __meta__ = {
 [connection signal="edges" from="." to="Spatial/Frames/Edges" method="_on_Game_edges"]
 [connection signal="keyframe_vertices" from="." to="Spatial/Frames/ImmediateGeometry2" method="_on_Game_keyframe_vertices"]
 [connection signal="message" from="." to="Control/RichTextLabel" method="_on_Game_message"]
-[connection signal="points" from="." to="Spatial/Spatial2" method="_on_Game_points"]
+[connection signal="points" from="." to="Spatial/Frames/Landmarks" method="_on_Game_points"]
 [connection signal="position" from="." to="Spatial/Frames" method="_on_Game_position"]
 [connection signal="position" from="." to="Spatial/Camera" method="_on_Game_position"]
 [connection signal="position" from="." to="Line2D" method="_on_Game_position"]

@@ -19,17 +19,8 @@ pub mod items {
 }
 use std::collections::HashMap;
 
-struct Landmark {
-    id: u32,
-    x: f64,
-    y: f64,
-    z: f64,
-}
-
 struct Values {
-    position: Vec<f32>,
-    points: Vec<f32>,
-    landmarks: HashMap<u32, Landmark>,
+    landmarks: HashMap<u32, Vector3>,
     keyframes: HashMap<u32, TypedArray<Vector3>>,
 }
 
@@ -55,7 +46,7 @@ use ndarray::{Array, Axis, stack, OwnedRepr};
 // use protobuf;
 
 
-fn keyframe_vertices() -> ArrayBase<OwnedRepr<f64>, ndarray::Dim<[usize; 2]>> {
+fn keyframe_vertices() -> Array<f64, Ix2> {
     let f = 1.0;
     let cx = 2.0;
     let cy = 1.0;
@@ -175,8 +166,6 @@ impl Game {
         Game {
             name: "".to_string(),
             values: Values {
-                position: vec![0., 1., 2.],
-                points: vec![1., 2., 3.],
                 landmarks: HashMap::new(),
                 keyframes: HashMap::new(),
             },
@@ -235,50 +224,6 @@ impl Game {
                     // let msg = format!("[{}] {}", envelope, message);
                     thread_tx.send(msg).unwrap();
                 }
-
-                // if let Ok((mut socket, response)) = connection {
-                //     println!("Connected to the server");
-                //     println!("Response HTTP code: {}", response.status());
-                //     println!("Response contains the following headers:");
-                //     for (ref header, _value) in response.headers() {
-                //         println!("* {}", header);
-                //     }
-
-                //     socket
-                //         .write_message(Message::Text("Hello WebSocket".into()))
-                //         .unwrap();
-                //     loop {
-                //         match socket.read_message() {
-                //             Ok(msg) => match msg {
-                //                 Message::Text(msg) => {
-                //                     let msg = json::parse(&msg).unwrap();
-                //                     println!("Received: {}", msg["type"]);
-                //                     thread_tx.send(msg).unwrap();
-                //                 }
-                //                 _ => println!("not a text message {}", msg),
-                //             },
-                //             Err(e) => {
-                //                 println!("READ ERR {:?} {}", e, e);
-                //                 match e {
-                //                     Error::AlreadyClosed
-                //                     | Error::ConnectionClosed
-                //                     | Error::Io(_)
-                //                     | Error::Protocol(_) => {
-                //                         println!("Connection closed. Reconnect...");
-                //                         break; // reconnect
-                //                     }
-                //                     _ => {
-                //                         println!("Unknown error");
-                //                         panic!(e);
-                //                     }
-                //                 }
-                //             }
-                //         }
-                //     }
-                // } else if let Err(err) = connection {
-                //     println!("{:?}\nwait...", err);
-                //     thread::sleep(time::Duration::from_secs(2));
-                // }
             }
         });
     }
@@ -288,7 +233,8 @@ impl Game {
     unsafe fn _process(&mut self, _owner: &Node, delta: f64) {
 
         
-
+        let zero_keyframe = keyframe_vertices();
+        
         
         // let mut vectors: TypedArray<Vector3> = TypedArray::default();
         // for x in -20..=20 {
@@ -312,12 +258,11 @@ impl Game {
             while let Ok(msg) = rx.try_recv() {
                 for landmark in msg.landmarks.iter() {
                     if landmark.coords.len() != 0 {
-                        self.values.landmarks.insert(landmark.id, Landmark {
-                            id: landmark.id,
-                            x: landmark.coords[0],
-                            y: landmark.coords[1],
-                            z: landmark.coords[2],
-                        });
+                        self.values.landmarks.insert(landmark.id, Vector3::new(
+                            landmark.coords[0] as f32,
+                            landmark.coords[1] as f32,
+                            landmark.coords[2] as f32,
+                        ));
                     }
                     else {
                         self.values.landmarks.remove(&landmark.id);
@@ -337,14 +282,13 @@ impl Game {
                 }
 
                 for keyframe in msg.keyframes.iter() {
-                    println!("keyframe {} {:?}", keyframe.id, keyframe.pose);
                     if let Some(pose) = &keyframe.pose {
                         let pose = pose.pose.to_vec();
                         let pose = Array::from_vec(pose).into_shape((4,4)).unwrap();
                         let rotation = pose.slice(s![0..3,0..3]);
                         let translation = pose.slice(s![0..3,3..4]);
 
-                        let vertices = rotation.dot(&keyframe_vertices())+translation; 
+                        let vertices = rotation.dot(&zero_keyframe)+translation; 
 
                         let mut vectors: TypedArray<Vector3> = TypedArray::default();
                         for v in vertices.axis_iter(Axis(1)) {
@@ -394,14 +338,9 @@ impl Game {
             &[data],
         );
 
-        let mut vectors: TypedArray<Vector3> = TypedArray::default();
-        for landmark in self.values.landmarks.values() {
-            vectors.push(Vector3::new(landmark.x as f32, landmark.y as f32, landmark.z as f32));
-        }
-        
         _owner.emit_signal(
             "points",
-            &[Variant::from_vector3_array(&vectors)],
+            &[self.values.landmarks.values().cloned().collect::<Vec<Vector3>>().to_variant()],
         );
         
         if let Some(edges_) = edges {
