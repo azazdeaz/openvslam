@@ -51,7 +51,7 @@ layers = 2147483649
 material_override = SubResource( 1 )
 script = ExtResource( 11 )
 
-[node name="ImmediateGeometry2" type="ImmediateGeometry" parent="Spatial/Frames"]
+[node name="Frames" type="ImmediateGeometry" parent="Spatial/Frames"]
 script = ExtResource( 9 )
 
 [node name="Edges" type="ImmediateGeometry" parent="Spatial/Frames"]
@@ -97,7 +97,7 @@ __meta__ = {
 }
 [connection signal="dry_protobuf" from="." to="Spatial" method="_on_Game_dry_protobuf"]
 [connection signal="edges" from="." to="Spatial/Frames/Edges" method="_on_Game_edges"]
-[connection signal="keyframe_vertices" from="." to="Spatial/Frames/ImmediateGeometry2" method="_on_Game_keyframe_vertices"]
+[connection signal="keyframe_vertices" from="." to="Spatial/Frames/Frames" method="_on_Game_keyframe_vertices"]
 [connection signal="message" from="." to="Control/RichTextLabel" method="_on_Game_message"]
 [connection signal="points" from="." to="Spatial/Frames/Landmarks" method="_on_Game_points"]
 [connection signal="position" from="." to="Spatial/Frames" method="_on_Game_position"]
