@@ -1,6 +1,6 @@
 use gdnative::api::*;
 use gdnative::prelude::*;
-
+use ndarray::prelude::*;
 
 
 
@@ -44,13 +44,26 @@ use std::{
 use url::Url;
 use zmq;
 
+extern crate nalgebra as na;
+
 // #[path = "protos/map_segment.rs"]
 // mod map_segment;
 // use map_segment::Map;
 // use protobuf;
 
 
+fn keyframe_vertices() -> na::Matrix3xX<f64> {
+    let f = 1.0;
+    let cx = 2.0;
+    let cy = 1.0;
+    let c = na::Vector3::new(0.0,0.0,0.0);
+    let tl = na::Vector3::new(-cx,cy,f);
+    let tr = na::Vector3::new(cx,cy,f);
+    let br = na::Vector3::new(cx,-cy,f);
+    let bl = na::Vector3::new(-cx,-cy,f);
 
+    na::Matrix3xX::from_columns(&[c,tl,tr,c,tr,br,c,br,bl,c,bl,tl])  
+}
 
 // __One__ `impl` block can have the `#[methods]` attribute, which will generate
 // code to automatically bind any exported methods to Godot.
@@ -111,6 +124,28 @@ impl Game {
                 usage: PropertyUsage::DEFAULT,
             }],
         });
+
+        builder.add_signal(Signal {
+            name: "keyframe_vertices",
+            // Argument list used by the editor for GUI and generation of GDScript handlers. It can be omitted if the signal is only used from code.
+            args: &[SignalArgument {
+                name: "data",
+                default: Variant::from_vector3_array(&TypedArray::default()),
+                export_info: ExportInfo::new(VariantType::Vector3Array),
+                usage: PropertyUsage::DEFAULT,
+            }],
+        });
+
+        builder.add_signal(Signal {
+            name: "message",
+            // Argument list used by the editor for GUI and generation of GDScript handlers. It can be omitted if the signal is only used from code.
+            args: &[SignalArgument {
+                name: "data",
+                default: Variant::from_str(""),
+                export_info: ExportInfo::new(VariantType::GodotString),
+                usage: PropertyUsage::DEFAULT,
+            }],
+        });
     }
 
     /// The "constructor" of the class.
@@ -127,6 +162,8 @@ impl Game {
         }
     }
 
+    
+
     // In order to make a method known to Godot, the #[export] attribute has to be used.
     // In Godot script-classes do not actually inherit the parent class.
     // Instead they are "attached" to the parent object, called the "owner".
@@ -139,8 +176,6 @@ impl Game {
         godot_print!("{} is ready!!!mak", self.name);
         
         let context = zmq::Context::new();
-        
-
 
 
         let owner = Arc::new(Mutex::new(_owner.as_ref()));
@@ -271,6 +306,35 @@ impl Game {
                     "points",
                     &[Variant::from_vector3_array(&vectors)],
                 );
+
+                for message in msg.messages.iter() {
+                    let text = format!("[{}]: {}", message.tag, message.txt);
+                    println!("{}", text);
+                    _owner.emit_signal(
+                        "message",
+                        &[Variant::from_str(text)],
+                    );
+                }
+
+                for keyframe in msg.keyframes.iter() {
+                    println!("keyframe {} {:?}", keyframe.id, keyframe.pose);
+                    if let Some(pose) = &keyframe.pose {
+                        let mat = na::Matrix4::from_row_slice(&pose.pose);
+                        let rotation = mat.fixed_slice::<na::U3,na::U3>(0,0);
+                        let translation = mat.column(3).remove_row(3);
+                        let vertices = (rotation * keyframe_vertices());
+                        let vertices = vertices + translation.transpose();
+                        
+                        
+                        let mut vectors: TypedArray<Vector3> = TypedArray::default();
+                        for v in vertices.into::<Matrix<f64,na::U3,na::D().column_iter() {
+                            vectors.push(Vector3::new(v[0] as f32, v[1] as f32, v[2] as f32));
+                        }
+                    }
+                    else {
+                        // TODO remove keyframe
+                    }
+                }
                 // _owner.emit_signal("dry_protobuf", &[msg.to_variant()]);
                 // println!("MSG IS {}", msg);
                 // if msg["type"] == "position" {

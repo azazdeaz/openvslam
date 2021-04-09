@@ -14,7 +14,7 @@ var im = ImmediateGeometry.new()
 # Called when the node enters the scene tree for the first time.
 func _ready():
 	rng.randomize();
-	var point_size = 5
+	var point_size = 2
 	
 	add_child(im)
 	var m = SpatialMaterial.new()
