@@ -1,5 +1,5 @@
 extends ImmediateGeometry
-
+const Colors = preload("Colors.gd")
 
 func _ready():
 	var m = SpatialMaterial.new()
@@ -14,7 +14,7 @@ func _on_Game_keyframe_vertices(data):
 	# Begin draw.
 	for frame in data:
 		begin(Mesh.PRIMITIVE_LINE_STRIP)
-		set_color(Color.purple)
+		set_color(Colors.FRAME)
 		for v in frame:
 			add_vertex(v);
 		end()

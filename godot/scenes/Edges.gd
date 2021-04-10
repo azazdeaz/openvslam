@@ -1,4 +1,5 @@
 extends ImmediateGeometry
+const Colors = preload("Colors.gd")
 
 func _ready():
 	var m = SpatialMaterial.new()
@@ -14,7 +15,7 @@ func _on_Game_edges(data):
 	# Begin draw.
 	begin(Mesh.PRIMITIVE_LINES)
 	
-	set_color(Color.aquamarine)
+	set_color(Colors.EDGE)
 	for edge in data:
 		add_vertex(edge[0]);
 		add_vertex(edge[1]);

@@ -1,15 +1,17 @@
-[gd_scene load_steps=15 format=2]
+[gd_scene load_steps=17 format=2]
 
 [ext_resource path="res://native/Game.gdns" type="Script" id=1]
 [ext_resource path="res://scenes/Line2D.vs" type="Script" id=2]
 [ext_resource path="res://scenes/Spatial.gd" type="Script" id=3]
 [ext_resource path="res://scenes/Camera.vs" type="Script" id=4]
 [ext_resource path="res://addons/kenney_prototype_textures/dark/texture_09.png" type="Texture" id=5]
+[ext_resource path="res://scenes/CurrentFrame.gd" type="Script" id=6]
 [ext_resource path="res://addons/goutte.camera.trackball/trackball_camera.gd" type="Script" id=7]
 [ext_resource path="res://scenes/ShowMessages.vs" type="Script" id=8]
 [ext_resource path="res://scenes/Keyframes.gd" type="Script" id=9]
 [ext_resource path="res://scenes/Edges.gd" type="Script" id=10]
 [ext_resource path="res://scenes/Landmarks.gd" type="Script" id=11]
+[ext_resource path="res://scenes/CamTarget.gd" type="Script" id=12]
 
 [sub_resource type="SpatialMaterial" id=1]
 flags_use_point_size = true
@@ -19,6 +21,8 @@ albedo_color = Color( 0.329412, 0.87451, 0.231373, 1 )
 [sub_resource type="PlaneMesh" id=2]
 
 [sub_resource type="SpatialMaterial" id=3]
+flags_transparent = true
+albedo_color = Color( 1, 1, 1, 0.290196 )
 albedo_texture = ExtResource( 5 )
 uv1_scale = Vector3( 100, 100, 100 )
 
@@ -34,9 +38,10 @@ script = ExtResource( 2 )
 [node name="Spatial" type="Spatial" parent="."]
 
 [node name="CamTarget" type="Spatial" parent="Spatial"]
+script = ExtResource( 12 )
 
 [node name="TrackballCamera" type="Camera" parent="Spatial/CamTarget"]
-transform = Transform( 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 3.3878, 13.972 )
+transform = Transform( 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.0367253, 13.972 )
 script = ExtResource( 7 )
 stabilize_horizon = true
 
@@ -56,6 +61,9 @@ script = ExtResource( 9 )
 
 [node name="Edges" type="ImmediateGeometry" parent="Spatial/Frames"]
 script = ExtResource( 10 )
+
+[node name="CurrentFrame" type="ImmediateGeometry" parent="Spatial/Frames"]
+script = ExtResource( 6 )
 
 [node name="Spatial2" type="Spatial" parent="Spatial"]
 script = ExtResource( 3 )
@@ -95,6 +103,8 @@ script = ExtResource( 8 )
 __meta__ = {
 "_edit_use_anchors_": false
 }
+[connection signal="current_frame" from="." to="Spatial/CamTarget" method="_on_Game_current_frame"]
+[connection signal="current_frame" from="." to="Spatial/Frames/CurrentFrame" method="_on_Game_current_frame"]
 [connection signal="dry_protobuf" from="." to="Spatial" method="_on_Game_dry_protobuf"]
 [connection signal="edges" from="." to="Spatial/Frames/Edges" method="_on_Game_edges"]
 [connection signal="keyframe_vertices" from="." to="Spatial/Frames/Frames" method="_on_Game_keyframe_vertices"]
