@@ -1,9 +1,6 @@
-[gd_scene load_steps=17 format=2]
+[gd_scene load_steps=13 format=2]
 
 [ext_resource path="res://native/Game.gdns" type="Script" id=1]
-[ext_resource path="res://scenes/Line2D.vs" type="Script" id=2]
-[ext_resource path="res://scenes/Spatial.gd" type="Script" id=3]
-[ext_resource path="res://scenes/Camera.vs" type="Script" id=4]
 [ext_resource path="res://addons/kenney_prototype_textures/dark/texture_09.png" type="Texture" id=5]
 [ext_resource path="res://scenes/CurrentFrame.gd" type="Script" id=6]
 [ext_resource path="res://addons/goutte.camera.trackball/trackball_camera.gd" type="Script" id=7]
@@ -26,14 +23,8 @@ albedo_color = Color( 1, 1, 1, 0.290196 )
 albedo_texture = ExtResource( 5 )
 uv1_scale = Vector3( 100, 100, 100 )
 
-[sub_resource type="SpatialMaterial" id=4]
-
 [node name="Game" type="Node"]
 script = ExtResource( 1 )
-
-[node name="Line2D" type="Line2D" parent="."]
-points = PoolVector2Array( 2.31531, 4.0293 )
-script = ExtResource( 2 )
 
 [node name="Spatial" type="Spatial" parent="."]
 
@@ -44,10 +35,6 @@ script = ExtResource( 12 )
 transform = Transform( 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.0367253, 13.972 )
 script = ExtResource( 7 )
 stabilize_horizon = true
-
-[node name="Camera2" type="Camera" parent="Spatial"]
-transform = Transform( 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 18.7554 )
-visible = false
 
 [node name="Frames" type="Spatial" parent="Spatial"]
 
@@ -65,25 +52,10 @@ script = ExtResource( 10 )
 [node name="CurrentFrame" type="ImmediateGeometry" parent="Spatial/Frames"]
 script = ExtResource( 6 )
 
-[node name="Spatial2" type="Spatial" parent="Spatial"]
-script = ExtResource( 3 )
-
-[node name="Camera" type="Camera" parent="Spatial"]
-transform = Transform( 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 18.7554 )
-visible = false
-fov = 95.2
-far = 1941.0
-script = ExtResource( 4 )
-
 [node name="CSGMesh" type="CSGMesh" parent="Spatial"]
 transform = Transform( 252.232, 0, 0, 0, 100, 0, 0, 0, 354.295, 0, 0, 0 )
 mesh = SubResource( 2 )
 material = SubResource( 3 )
-
-[node name="CSGBox" type="CSGBox" parent="Spatial"]
-visible = false
-height = 16.5128
-material = SubResource( 4 )
 
 [node name="Control" type="Control" parent="."]
 margin_right = 40.0
@@ -111,5 +83,3 @@ __meta__ = {
 [connection signal="message" from="." to="Control/RichTextLabel" method="_on_Game_message"]
 [connection signal="points" from="." to="Spatial/Frames/Landmarks" method="_on_Game_points"]
 [connection signal="position" from="." to="Spatial/Frames" method="_on_Game_position"]
-[connection signal="position" from="." to="Spatial/Camera" method="_on_Game_position"]
-[connection signal="position" from="." to="Line2D" method="_on_Game_position"]
