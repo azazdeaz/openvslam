@@ -15,7 +15,6 @@ var speed_turn = 0.6
 var step_time = 0.12
 
 func _input(event):
-	print(event.as_text())
 	if event is InputEventJoypadMotion:
 		if event.axis == 6:
 			left = event.axis_value
