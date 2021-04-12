@@ -10,7 +10,6 @@ const Colors = preload("Colors.gd")
 
 func _on_Game_current_frame(data):
 	clear()
-	print("CF", data)
 	begin(Mesh.PRIMITIVE_LINE_STRIP)
 	set_color(Colors.CURRENT_FRAME)
 	for v in data:

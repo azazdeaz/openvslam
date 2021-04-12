@@ -16,7 +16,5 @@ func _ready():
 #	pass
 
 
-func _on_Game_current_frame(data):
-	transform.origin = data[0]
-	
-
+func _on_StaticBody_input_event(camera, event, click_position, click_normal, shape_idx):
+	print(click_position)
