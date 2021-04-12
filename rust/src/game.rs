@@ -31,6 +31,7 @@ struct Values {
     target: (f64, f64, f64),
     speed: Option<(f64, f64)>,
     step: Option<(f64, f64, f64)>,
+    tracker_state: TrackerState,
 }
 
 use std::sync::mpsc;
@@ -49,6 +50,7 @@ extern crate nalgebra as na;
 use ndarray::prelude::*;
 use ndarray::{stack, Array, Axis, OwnedRepr};
 
+#[derive(Debug)]
 enum TrackerState {
     NotInitialized,
     Initializing,
@@ -268,6 +270,7 @@ impl Game {
                 target: (0., 0., 0.),
                 speed: Some((0., 0.)),
                 step: None,
+                tracker_state: TrackerState::NotInitialized
             },
             pub_vel: publisher,
             rx: None,
@@ -386,15 +389,18 @@ impl Game {
 
                 for message in msg.messages.iter() {
                     let text = format!("[{}]: {}", message.tag, message.txt);
-                    println!("{}", text);
+                    godot_print!("{}", text);
                     if message.tag == "TRACKING_STATE" {
-                        let tracking_state = match message.txt.as_str() {
+                        let tracker_state = match message.txt.as_str() {
                             "NotInitialized" => Some(TrackerState::NotInitialized),
                             "Initializing" => Some(TrackerState::Initializing),
                             "Tracking" => Some(TrackerState::Tracking),
                             "Lost" => Some(TrackerState::Lost),
                             _ => None
                         };
+                        if let Some(tracker_state) = tracker_state {
+                            self.values.tracker_state = tracker_state
+                        }
                     }
                     _owner.emit_signal("message", &[Variant::from_str(text)]);
                 }
@@ -507,6 +513,15 @@ impl Game {
         let speed = 0.3;
         let turn_speed = 0.5;
 
+        let get_label = |path| {
+            _owner
+                .get_node(path)
+                .unwrap()
+                .assume_safe()
+                .cast::<Label>()
+                .unwrap()
+        };
+
         let go = |left, right, time| {
             let mut cmd = format!("{},{}", left, right);
             if let Some(time) = time {
@@ -514,16 +529,8 @@ impl Game {
             }
             self.pub_vel.send(&cmd, 0).expect("failed to send cmd");
 
-            let get_label = |path| {
-                _owner
-                    .get_node(path)
-                    .unwrap()
-                    .assume_safe()
-                    .cast::<Label>()
-                    .unwrap()
-            };
 
-            get_label("GUI/SpeedLeft").set_text(format!("{}", cmd));
+            get_label("GUI/Speed").set_text(format!("{}", cmd));
             // get_label("GUI/SpeedRight").set_text(format!(">{}", right));
         };
 
@@ -566,6 +573,7 @@ impl Game {
         }
         
 
+        get_label("GUI/TrackerState").set_text(format!("{:?}", self.values.tracker_state));
         // let labelNode: Label = _owner.get_node(gd::NodePath::from_str("/root/GUI/SpeedRight")).unwrap().cast::<Label>();
         // labelNode.set_text(format!("{}", SpeedRight));
         // godot_print!("{}", cmd);
