@@ -31,11 +31,11 @@ void publisher::run() {
     while (true) {
         const auto t0 = std::chrono::system_clock::now();
 
-        const auto serialized_map_data = data_serializer_->serialize_map_diff();
+        const auto serialized_map_data = data_serializer_->serialize_map_diff(system_->get_tracker_state());
 
         if (!serialized_map_data.empty()) {
+            // client_->emit("map_publish", data_serializer_->serialize_tracker_state(system_->get_tracker_state()));
             client_->emit("map_publish", serialized_map_data);
-            client_->emit("map_publish", data_serializer_->serialize_tracker_state(system_->get_tracker_state()));
         }
 
         const auto serialized_frame_data = data_serializer_->serialize_latest_frame(image_quality_);

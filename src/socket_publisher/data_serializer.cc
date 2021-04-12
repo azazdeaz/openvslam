@@ -84,7 +84,7 @@ std::string data_serializer::serialize_tracker_state(openvslam::tracker_state_t 
     // return base64_encode(cstr, buffer.length());
 }
 
-std::string data_serializer::serialize_map_diff() {
+std::string data_serializer::serialize_map_diff(openvslam::tracker_state_t state) {
     std::vector<openvslam::data::keyframe*> keyframes;
     map_publisher_->get_keyframes(keyframes);
 
@@ -95,13 +95,13 @@ std::string data_serializer::serialize_map_diff() {
     const auto current_camera_pose = map_publisher_->get_current_cam_pose();
 
     const double pose_hash = get_mat_hash(current_camera_pose);
-    if (pose_hash == current_pose_hash_) {
-        current_pose_hash_ = pose_hash;
-        return "";
-    }
+    // if (pose_hash == current_pose_hash_) {
+    //     current_pose_hash_ = pose_hash;
+    //     return "";
+    // }
     current_pose_hash_ = pose_hash;
 
-    return serialize_as_protobuf(keyframes, all_landmarks, local_landmarks, current_camera_pose);
+    return serialize_as_protobuf(keyframes, all_landmarks, local_landmarks, current_camera_pose, state);
 }
 
 std::string data_serializer::serialize_latest_frame(const unsigned int image_quality) {
@@ -117,11 +117,31 @@ std::string data_serializer::serialize_latest_frame(const unsigned int image_qua
 std::string data_serializer::serialize_as_protobuf(const std::vector<openvslam::data::keyframe*>& keyfrms,
                                                    const std::vector<openvslam::data::landmark*>& all_landmarks,
                                                    const std::set<openvslam::data::landmark*>& local_landmarks,
-                                                   const openvslam::Mat44_t& current_camera_pose) {
+                                                   const openvslam::Mat44_t& current_camera_pose,
+                                                   openvslam::tracker_state_t state) {
     map_segment::map map;
     auto message = map.add_messages();
     message->set_tag("0");
     message->set_txt("only map data");
+
+    std::string tracking_state;
+    switch(state) {
+        case openvslam::tracker_state_t::NotInitialized:
+            tracking_state = "NotInitialized";
+            break;
+        case openvslam::tracker_state_t::Initializing:
+            tracking_state = "Initializing";
+            break;
+        case openvslam::tracker_state_t::Tracking:
+            tracking_state = "Tracking";
+            break;
+        case openvslam::tracker_state_t::Lost:
+            tracking_state = "Lost";
+            break;
+    }
+    message = map.add_messages();
+    message->set_tag("TRACKING_STATE");
+    message->set_txt(tracking_state);
 
     std::forward_list<map_segment::map_keyframe*> allocated_keyframes;
 
