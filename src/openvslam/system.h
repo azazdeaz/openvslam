@@ -2,6 +2,7 @@
 #define OPENVSLAM_SYSTEM_H
 
 #include "openvslam/type.h"
+#include "openvslam/tracking_module.h"
 #include "openvslam/data/bow_vocabulary_fwd.h"
 
 #include <string>
@@ -124,6 +125,8 @@ public:
 
     //! Resume the tracking module
     void resume_tracker();
+
+    tracker_state_t get_tracker_state();
 
     //-----------------------------------------
     // management for reset

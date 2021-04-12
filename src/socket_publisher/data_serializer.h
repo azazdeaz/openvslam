@@ -2,6 +2,7 @@
 #define SOCKET_PUBLISHER_DATA_SERIALIZER_H
 
 #include "openvslam/type.h"
+#include "openvslam/tracking_module.h"
 
 #include <memory>
 
@@ -38,6 +39,8 @@ public:
     std::string serialize_map_diff();
 
     std::string serialize_latest_frame(const unsigned int image_quality_);
+
+    std::string serialize_tracker_state(openvslam::tracker_state_t state);
 
     static std::string serialized_reset_signal_;
 

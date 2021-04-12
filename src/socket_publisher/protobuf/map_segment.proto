@@ -36,3 +36,16 @@ message map {
     repeated uint32 local_landmarks = 5;
     repeated msg messages = 6;
 }
+
+message Update {
+    enum Status {
+        NotInitialized = 0;
+        Initializing = 1;
+        Tracking = 2;
+        Lost = 3;
+    }
+    message TrackingStatus {
+        Status status = 1;
+    }
+    TrackingStatus tracking_status = 1;
+}

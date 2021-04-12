@@ -12,7 +12,7 @@ publisher::publisher(const std::shared_ptr<openvslam::config>& cfg, openvslam::s
     : system_(system),
       emitting_interval_(cfg->yaml_node_["SocketPublisher.emitting_interval"].as<unsigned int>(15000)),
       image_quality_(cfg->yaml_node_["SocketPublisher.image_quality"].as<unsigned int>(20)),
-      client_(new socket_client(cfg->yaml_node_["SocketPublisher.server_uri"].as<std::string>("127.0.0.1:3000"))) {
+      client_(new socket_client(cfg->yaml_node_["SocketPublisher.server_uri"].as<std::string>("http://127.0.0.1:3000"))) {
     const auto camera = cfg->camera_;
     const auto img_cols = (camera->cols_ < 1) ? 640 : camera->cols_;
     const auto img_rows = (camera->rows_ < 1) ? 480 : camera->rows_;
@@ -35,6 +35,7 @@ void publisher::run() {
 
         if (!serialized_map_data.empty()) {
             client_->emit("map_publish", serialized_map_data);
+            client_->emit("map_publish", data_serializer_->serialize_tracker_state(system_->get_tracker_state()));
         }
 
         const auto serialized_frame_data = data_serializer_->serialize_latest_frame(image_quality_);

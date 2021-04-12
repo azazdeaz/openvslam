@@ -45,6 +45,45 @@ std::string data_serializer::serialize_messages(const std::vector<std::string>& 
     return base64_encode(cstr, buffer.length());
 }
 
+std::string data_serializer::serialize_tracker_state(openvslam::tracker_state_t state) {
+
+    // map_segment::Update update;
+    // auto ts = update.add_tracking_status();
+
+    std::string tracking_state;
+
+    switch(state) {
+        case openvslam::tracker_state_t::NotInitialized:
+            tracking_state = "NotInitialized";
+            break;
+        case openvslam::tracker_state_t::Initializing:
+            tracking_state = "Initializing";
+            break;
+        case openvslam::tracker_state_t::Tracking:
+            tracking_state = "Tracking";
+            break;
+        case openvslam::tracker_state_t::Lost:
+            tracking_state = "Lost";
+            break;
+    }
+
+    const auto tags = std::vector<std::string>{"TRACKING_STATE"};
+    const auto messages = std::vector<std::string>{tracking_state};
+    return serialize_messages(tags, messages);
+
+    // for (unsigned int i = 0; i < length; i++) {
+    //     auto message = map.add_messages();
+    //     message->set_tag(tags.at(i));
+    //     message->set_txt(messages.at(i));
+    // }
+
+    // std::string buffer;
+    // map.SerializeToString(&buffer);
+
+    // const auto* cstr = reinterpret_cast<const unsigned char*>(buffer.c_str());
+    // return base64_encode(cstr, buffer.length());
+}
+
 std::string data_serializer::serialize_map_diff() {
     std::vector<openvslam::data::keyframe*> keyframes;
     map_publisher_->get_keyframes(keyframes);
