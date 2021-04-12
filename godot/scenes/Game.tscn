@@ -92,13 +92,6 @@ margin_top = 4.0
 margin_right = 364.218
 margin_bottom = 18.0
 text = "0.0000000000"
-
-[node name="SpeedRight" type="Label" parent="GUI"]
-margin_left = 272.218
-margin_top = 21.818
-margin_right = 364.218
-margin_bottom = 35.818
-text = "0.0000000000"
 [connection signal="current_frame" from="." to="Spatial/CamTarget" method="_on_Game_current_frame"]
 [connection signal="current_frame" from="." to="Spatial/Frames/CurrentFrame" method="_on_Game_current_frame"]
 [connection signal="dry_protobuf" from="." to="Spatial" method="_on_Game_dry_protobuf"]

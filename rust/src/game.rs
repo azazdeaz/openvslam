@@ -9,6 +9,7 @@ use gdnative::prelude::*;
 pub struct Game {
     name: String,
     values: Values,
+    pub_vel: zmq::Socket,
     rx: Option<Receiver<items::VSlamMap>>,
 }
 
@@ -18,10 +19,18 @@ pub mod items {
 }
 use std::collections::HashMap;
 
+struct Pose {
+    rotation: Array2<f64>,
+    translation: Array2<f64>,
+}
 struct Values {
     landmarks: HashMap<u32, Vector3>,
     keyframes: HashMap<u32, TypedArray<Vector3>>,
     current_frame: Option<TypedArray<Vector3>>,
+    pose: Pose,
+    target: (f64, f64, f64),
+    speed: Option<(f64, f64)>,
+    step: Option<(f64, f64, f64)>,
 }
 
 use std::sync::mpsc;
@@ -39,6 +48,13 @@ extern crate nalgebra as na;
 
 use ndarray::prelude::*;
 use ndarray::{stack, Array, Axis, OwnedRepr};
+
+enum TrackerState {
+    NotInitialized,
+    Initializing,
+    Tracking,
+    Lost,
+}
 
 // #[path = "protos/map_segment.rs"]
 // mod map_segment;
@@ -63,6 +79,19 @@ fn keyframe_vertices() -> Array<f64, Ix2> {
     stack![Axis(1), c, tl, tr, c, tr, br, c, br, bl, c, bl, tl]
 
     // na::Matrix3xX::from_columns(&[c,tl,tr,c,tr,br,c,br,bl,c,bl,tl])
+}
+
+pub fn angle_difference(bearing1: f64, bearing2: f64) -> f64 {
+    let pi = std::f64::consts::PI;
+    let pi2 = pi * 2.;
+    let diff = (bearing2 - bearing1) % pi2;
+    if diff < -pi {
+        pi2 + diff
+    } else if diff > pi {
+        -pi2 + diff
+    } else {
+        diff
+    }
 }
 
 // NOTE: I have no idea what im doing...
@@ -219,15 +248,49 @@ impl Game {
     /// The "constructor" of the class.
     fn new(_owner: &Node) -> Self {
         godot_print!("Game is created!");
+
+        let context = zmq::Context::new();
+        let publisher = context.socket(zmq::PUB).unwrap();
+        publisher
+            .bind("tcp://*:5567")
+            .expect("failed binding publisher");
+
         Game {
             name: "".to_string(),
             values: Values {
                 landmarks: HashMap::new(),
                 keyframes: HashMap::new(),
-                current_frame: None,
+                current_frame: Some(TypedArray::from_slice(&[Vector3::new(0., 0., 0.)])),
+                pose: Pose {
+                    rotation: Array2::eye(3),
+                    translation: Array2::zeros((3, 1)),
+                },
+                target: (0., 0., 0.),
+                speed: Some((0., 0.)),
+                step: None,
             },
+            pub_vel: publisher,
             rx: None,
         }
+    }
+
+    #[export]
+    fn set_target(&mut self, _owner: TRef<Node>, x: f64, y: f64, z: f64) {
+        self.values.speed = None;
+        self.values.target = (x, y, z);
+    }
+
+    #[export]
+    fn set_speed(&mut self, _owner: TRef<Node>, left: f64, right: f64) {
+        let left = (left * 100.).floor() / 100.;
+        let right = (right * 100.).floor() / 100.;
+        self.values.speed = Some((left, right));
+    }
+
+
+    #[export]
+    fn set_step(&mut self, _owner: TRef<Node>, left: f64, right: f64, time: f64) {
+        self.values.step = Some((left, right, time));
     }
 
     // In order to make a method known to Godot, the #[export] attribute has to be used.
@@ -279,7 +342,6 @@ impl Game {
             }
         });
     }
-
     // This function will be called in every frame
     #[export]
     unsafe fn _process(&mut self, _owner: &Node, delta: f64) {
@@ -325,6 +387,15 @@ impl Game {
                 for message in msg.messages.iter() {
                     let text = format!("[{}]: {}", message.tag, message.txt);
                     println!("{}", text);
+                    if message.tag == "TRACKING_STATE" {
+                        let tracking_state = match message.txt.as_str() {
+                            "NotInitialized" => Some(TrackerState::NotInitialized),
+                            "Initializing" => Some(TrackerState::Initializing),
+                            "Tracking" => Some(TrackerState::Tracking),
+                            "Lost" => Some(TrackerState::Lost),
+                            _ => None
+                        };
+                    }
                     _owner.emit_signal("message", &[Variant::from_str(text)]);
                 }
 
@@ -332,21 +403,21 @@ impl Game {
                     let pose = pose.pose.to_vec();
                     let pose = Array::from_vec(pose).into_shape((4, 4)).unwrap();
                     let pose = inv_pose(pose);
-                    let rotation = pose.slice(s![0..3, 0..3]);
-                    let translation = pose.slice(s![0..3, 3..4]);
+                    let rotation = pose.slice(s![0..3, 0..3]).to_owned();
+                    let translation = pose.slice(s![0..3, 3..4]).to_owned();
 
-                    let vertices = rotation.dot(&zero_keyframe) + translation;
+                    let vertices = &rotation.dot(&zero_keyframe) + &translation;
 
                     let mut vectors: TypedArray<Vector3> = TypedArray::default();
                     for v in vertices.axis_iter(Axis(1)) {
                         vectors.push(Vector3::new(v[0] as f32, v[1] as f32, v[2] as f32));
                     }
-                    vectors
+                    (vectors, rotation, translation)
                 };
 
                 for keyframe in msg.keyframes.iter() {
                     if let Some(pose) = &keyframe.pose {
-                        let vectors = mat44_to_vertices(pose);
+                        let (vectors, _, _) = mat44_to_vertices(pose);
 
                         self.values.keyframes.insert(keyframe.id, vectors);
                     } else {
@@ -355,7 +426,10 @@ impl Game {
                 }
 
                 if let Some(current_frame) = msg.current_frame {
-                    self.values.current_frame = Some(mat44_to_vertices(&current_frame));
+                    let (vertices, rotation, translation) = mat44_to_vertices(&current_frame);
+                    self.values.current_frame = Some(vertices);
+                    self.values.pose.rotation.assign(&rotation);
+                    self.values.pose.translation.assign(&translation);
                 }
 
                 edges = Some(msg.edges);
@@ -428,6 +502,72 @@ impl Game {
         if let Some(current_frame) = &self.values.current_frame {
             _owner.emit_signal("current_frame", &[current_frame.to_variant()]);
         }
-        // godot_print!("Inside {} _process(), delta is {} {}", self.name, delta, self.values.position[0]);
+
+
+        let speed = 0.3;
+        let turn_speed = 0.5;
+
+        let go = |left, right, time| {
+            let mut cmd = format!("{},{}", left, right);
+            if let Some(time) = time {
+                cmd = format!("{},{}", cmd, time);
+            }
+            self.pub_vel.send(&cmd, 0).expect("failed to send cmd");
+
+            let get_label = |path| {
+                _owner
+                    .get_node(path)
+                    .unwrap()
+                    .assume_safe()
+                    .cast::<Label>()
+                    .unwrap()
+            };
+
+            get_label("GUI/SpeedLeft").set_text(format!("{}", cmd));
+            // get_label("GUI/SpeedRight").set_text(format!(">{}", right));
+        };
+
+        if let Some(step) = self.values.step {
+            godot_print!("STEP {:?}", step);
+            go(step.0, step.1, Some(step.2));
+            self.values.step = None;
+            self.values.speed = None;
+        }
+        else if let Some(speed) = self.values.speed {
+            go(speed.0, speed.1, None);
+        } else {
+            // let pose = &self.values.pose;
+            // let dx = self.values.target.0 - pose.translation[[0, 0]];
+            // let dz = self.values.target.2 - pose.translation[[2, 0]];
+            // let yaw1 = dx.atan2(dz);
+            // let m = na::Matrix3::from_row_slice(&pose.rotation.to_owned().into_raw_vec());
+            // let yaw2 = na::Rotation3::from_matrix(&m).euler_angles().1;
+            // let yawd = angle_difference(yaw2, yaw1);
+            // let distance = dx.hypot(dz);
+            // let thing = format!(
+            //     "from {:?} to {:?} is {}mm; yaw1={} yaw2={} yawd={}",
+            //     pose.translation, self.values.target, distance, yaw1, yaw2, yawd
+            // );
+
+            // let speed = 0.4;
+            // if distance < 1.0 {
+            //     left = 0.;
+            //     right = 0.;
+            // } else if yawd.abs() < 0.1 {
+            //     left = speed;
+            //     right = speed;
+            // } else if yawd > 0. {
+            //     left = -turn_speed;
+            //     right = turn_speed;
+            // } else {
+            //     left = turn_speed;
+            //     right = -turn_speed;
+            // }
+        }
+        
+
+        // let labelNode: Label = _owner.get_node(gd::NodePath::from_str("/root/GUI/SpeedRight")).unwrap().cast::<Label>();
+        // labelNode.set_text(format!("{}", SpeedRight));
+        // godot_print!("{}", cmd);
     }
 }
