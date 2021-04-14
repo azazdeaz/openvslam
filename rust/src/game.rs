@@ -11,6 +11,7 @@ pub struct Game {
     values: Values,
     pub_vel: zmq::Socket,
     rx: Option<Receiver<items::VSlamMap>>,
+    rx_image: Option<Receiver<Vec<u8>>>,
 }
 
 use prost::Message;
@@ -19,6 +20,9 @@ pub mod items {
 }
 use std::collections::HashMap;
 
+const URL_IMAGE_PUB: &str = "tcp://192.168.50.234:5560";
+
+#[derive(PartialEq, Clone)]
 struct Pose {
     rotation: Array2<f64>,
     translation: Array2<f64>,
@@ -29,9 +33,11 @@ struct Values {
     current_frame: Option<TypedArray<Vector3>>,
     pose: Pose,
     target: (f64, f64, f64),
+    follow_target: bool,
     speed: Option<(f64, f64)>,
     step: Option<(f64, f64, f64)>,
     tracker_state: TrackerState,
+
 }
 
 use std::sync::mpsc;
@@ -57,6 +63,8 @@ enum TrackerState {
     Tracking,
     Lost,
 }
+
+extern crate jpeg_decoder as jpeg;
 
 // #[path = "protos/map_segment.rs"]
 // mod map_segment;
@@ -268,12 +276,14 @@ impl Game {
                     translation: Array2::zeros((3, 1)),
                 },
                 target: (0., 0., 0.),
-                speed: Some((0., 0.)),
-                step: None,
+                follow_target: false,
+                speed: None,
+                step: Some((0., 0., 0.)),
                 tracker_state: TrackerState::NotInitialized
             },
             pub_vel: publisher,
             rx: None,
+            rx_image: None,
         }
     }
 
@@ -281,6 +291,12 @@ impl Game {
     fn set_target(&mut self, _owner: TRef<Node>, x: f64, y: f64, z: f64) {
         self.values.speed = None;
         self.values.target = (x, y, z);
+    }
+
+    #[export]
+    fn set_follow_target(&mut self, _owner: TRef<Node>, on: bool) {
+        godot_print!("follow_target {}", on);
+        self.values.follow_target = on;
     }
 
     #[export]
@@ -307,40 +323,67 @@ impl Game {
         self.name = "Game".to_string();
         godot_print!("{} is ready!!!mak", self.name);
 
+        // let context = zmq::Context::new();
+
+        // let (tx, rx): (Sender<items::VSlamMap>, Receiver<items::VSlamMap>) = mpsc::channel();
+        // self.rx = Some(rx);
+        // let thread_tx = tx.clone();
+
+        
+        // spawn(move || {
+        //     loop {
+        //         println!("Connecting...");
+        //         // let connection = connect(Url::parse("ws://localhost:3012/socket").unwrap());
+        //         let subscriber = context.socket(zmq::SUB).unwrap();
+        //         subscriber
+        //             .connect("tcp://127.0.0.1:5566")
+        //             .expect("failed connecting subscriber");
+        //         subscriber.set_subscribe(b"").expect("failed subscribing");
+
+        //         loop {
+        //             let envelope = subscriber
+        //                 .recv_string(0)
+        //                 .expect("failed receiving envelope")
+        //                 .unwrap();
+        //             let message = subscriber.recv_bytes(0).expect("failed receiving message");
+        //             // println!("{:?}", message);
+        //             let message = ::base64::decode(message).unwrap();
+        //             let msg = items::VSlamMap::decode(&mut std::io::Cursor::new(message)).unwrap();
+
+        //             // println!("{:?}", msg);
+        //             // let m = Map::parse_from_bytes(&message);
+        //             // m.merge_from(CodedInputStream::from_bytes(&message));
+        //             // println!("{:?}", m);
+        //             // let msg = format!("[{}] {}", envelope, message);
+        //             thread_tx.send(msg).unwrap();
+        //         }
+        //     }
+        // });
+
         let context = zmq::Context::new();
-
-        let owner = Arc::new(Mutex::new(_owner.as_ref()));
-        let o = Arc::clone(&owner);
-
-        let (tx, rx): (Sender<items::VSlamMap>, Receiver<items::VSlamMap>) = mpsc::channel();
-        self.rx = Some(rx);
+        let (tx, rx): (Sender<Vec<u8>>, Receiver<Vec<u8>>) = mpsc::channel();
+        self.rx_image = Some(rx);
         let thread_tx = tx.clone();
+
         spawn(move || {
             loop {
                 println!("Connecting...");
                 // let connection = connect(Url::parse("ws://localhost:3012/socket").unwrap());
                 let subscriber = context.socket(zmq::SUB).unwrap();
                 subscriber
-                    .connect("tcp://127.0.0.1:5566")
+                    .connect(URL_IMAGE_PUB)
                     .expect("failed connecting subscriber");
                 subscriber.set_subscribe(b"").expect("failed subscribing");
 
                 loop {
-                    let envelope = subscriber
-                        .recv_string(0)
-                        .expect("failed receiving envelope")
-                        .unwrap();
+                    // let envelope = subscriber
+                    //     .recv_string(0)
+                    //     .expect("failed receiving envelope")
+                    //     .unwrap();
                     let message = subscriber.recv_bytes(0).expect("failed receiving message");
-                    // println!("{:?}", message);
-                    let message = ::base64::decode(message).unwrap();
-                    let msg = items::VSlamMap::decode(&mut std::io::Cursor::new(message)).unwrap();
-
-                    // println!("{:?}", msg);
-                    // let m = Map::parse_from_bytes(&message);
-                    // m.merge_from(CodedInputStream::from_bytes(&message));
-                    // println!("{:?}", m);
-                    // let msg = format!("[{}] {}", envelope, message);
-                    thread_tx.send(msg).unwrap();
+                    godot_print!("image in {}", message.len());
+                    thread_tx.send(message).unwrap();
+                    
                 }
             }
         });
@@ -348,6 +391,7 @@ impl Game {
     // This function will be called in every frame
     #[export]
     unsafe fn _process(&mut self, _owner: &Node, delta: f64) {
+        let prev_pose = self.values.pose.clone();
         let zero_keyframe = keyframe_vertices();
 
         // let mut vectors: TypedArray<Vector3> = TypedArray::default();
@@ -364,6 +408,26 @@ impl Game {
         //     "points",
         //     &[Variant::from_vector3_array(&vectors)],
         // );
+
+        if let Some(rx) = &self.rx_image {
+            while let Ok(pixels) = rx.try_recv() {
+                godot_print!("got image");
+                let thumb = _owner
+                    .get_node("GUI/Thumb")
+                    .unwrap()
+                    .assume_safe()
+                    .cast::<Sprite>()
+                    .unwrap();
+                // let texture = thumb.texture().unwrap().cast::<ImageTexture>().unwrap();
+                let im = Image::new();
+                im.load_jpg_from_buffer(TypedArray::from_vec(pixels));
+                // im.create_from_data(1280, 960, true, Image::FORMAT_RGB8, TypedArray::from_vec(pixels));
+                let imt = ImageTexture::new();
+                
+                imt.create_from_image(im, 7);
+                (*thumb).set_texture(imt);
+            }
+        }
 
         let mut edges = None;
         if let Some(rx) = &self.rx {
@@ -534,42 +598,45 @@ impl Game {
             // get_label("GUI/SpeedRight").set_text(format!(">{}", right));
         };
 
-        if let Some(step) = self.values.step {
-            godot_print!("STEP {:?}", step);
-            go(step.0, step.1, Some(step.2));
-            self.values.step = None;
-            self.values.speed = None;
-        }
-        else if let Some(speed) = self.values.speed {
-            go(speed.0, speed.1, None);
-        } else {
-            // let pose = &self.values.pose;
-            // let dx = self.values.target.0 - pose.translation[[0, 0]];
-            // let dz = self.values.target.2 - pose.translation[[2, 0]];
-            // let yaw1 = dx.atan2(dz);
-            // let m = na::Matrix3::from_row_slice(&pose.rotation.to_owned().into_raw_vec());
-            // let yaw2 = na::Rotation3::from_matrix(&m).euler_angles().1;
-            // let yawd = angle_difference(yaw2, yaw1);
-            // let distance = dx.hypot(dz);
-            // let thing = format!(
-            //     "from {:?} to {:?} is {}mm; yaw1={} yaw2={} yawd={}",
-            //     pose.translation, self.values.target, distance, yaw1, yaw2, yawd
-            // );
+        if self.values.follow_target {
+            if prev_pose != self.values.pose {
+                let speed_go = 0.4;
+                let speed_turn = 0.6;
+                let step_time = 0.12;
 
-            // let speed = 0.4;
-            // if distance < 1.0 {
-            //     left = 0.;
-            //     right = 0.;
-            // } else if yawd.abs() < 0.1 {
-            //     left = speed;
-            //     right = speed;
-            // } else if yawd > 0. {
-            //     left = -turn_speed;
-            //     right = turn_speed;
-            // } else {
-            //     left = turn_speed;
-            //     right = -turn_speed;
-            // }
+                let pose = &self.values.pose;
+                let dx = self.values.target.0 - pose.translation[[0, 0]];
+                let dz = self.values.target.2 - pose.translation[[2, 0]];
+                let yaw1 = dx.atan2(dz);
+                let m = na::Matrix3::from_row_slice(&pose.rotation.to_owned().into_raw_vec());
+                let yaw2 = na::Rotation3::from_matrix(&m).euler_angles().1;
+                let yawd = angle_difference(yaw2, yaw1);
+                let distance = dx.hypot(dz);
+                godot_print!(
+                    "from {:?} to {:?} is {}mm; yaw1={} yaw2={} yawd={}",
+                    pose.translation, self.values.target, distance, yaw1, yaw2, yawd
+                );
+    
+                if distance < 1.0 {
+                    go(0., 0., None);
+                } else if yawd.abs() < 0.1 {
+                    go(speed_go, speed_go, Some(step_time));
+                } else if yawd > 0. {
+                    go(-speed_turn, speed_turn, Some(step_time));
+                } else {
+                    go(speed_turn, -speed_turn, Some(step_time));
+                }
+            }
+        } else {
+            if let Some(step) = self.values.step {
+                godot_print!("STEP {:?}", step);
+                go(step.0, step.1, Some(step.2));
+                self.values.step = None;
+                self.values.speed = None;
+            }
+            else if let Some(speed) = self.values.speed {
+                go(speed.0, speed.1, None);
+            } 
         }
         
 

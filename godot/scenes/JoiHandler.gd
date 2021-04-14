@@ -15,6 +15,9 @@ var speed_turn = 0.6
 var step_time = 0.12
 
 func _input(event):
+#	print(event.as_text())
+	var game = get_node("/root/Game")
+	
 	if event is InputEventJoypadMotion:
 		if event.axis == 6:
 			left = event.axis_value
@@ -30,9 +33,10 @@ func _input(event):
 		elif event.button_index == 5:
 			right_reversed = event.pressed
 			report()
+		elif event.button_index == 11:
+			game.set_follow_target(event.pressed)
 		
 		elif event.pressed:
-			var game = get_node("/root/Game")
 			if event.button_index == 12:
 				game.set_step(speed_go, speed_go, step_time)
 			if event.button_index == 13:

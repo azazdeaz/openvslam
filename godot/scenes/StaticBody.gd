@@ -17,6 +17,18 @@ func _ready():
 func _input_event(camera, event, click_position, click_normal, shape_idx):
 	if event is InputEventMouseButton:
 		if event.button_index == BUTTON_LEFT and event.doubleclick:
-			get_node("/root/Game/Spatial/Goal").transform.origin = click_position
 			print("Mouse Click/Unclick at: ", event.position, " shape:", shape_idx)
-			print(get_node("/root/Game").set_target(click_position[0],click_position[1],click_position[2]))
+			var t_frames = get_node("/root/Game/Spatial/Frames").transform
+			print("frame transform:",t_frames)
+			click_position = Vector3(click_position)
+			print(click_position)
+#			click_position = Vector3(click_position).rotated(Vector3.FORWARD, PI)
+			click_position = t_frames * click_position
+			print(click_position)
+			
+			get_node("/root/Game/Spatial/Frames/Goal").transform.origin = click_position
+			print(get_node("/root/Game").set_target(
+				click_position.x,
+				click_position.y,
+				click_position.z
+			))
