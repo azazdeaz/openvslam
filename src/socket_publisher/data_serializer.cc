@@ -143,6 +143,8 @@ std::string data_serializer::serialize_as_protobuf(const std::vector<openvslam::
     message->set_tag("TRACKING_STATE");
     message->set_txt(tracking_state);
 
+    map.set_last_image(serialize_latest_frame(95));
+
     std::forward_list<map_segment::map_keyframe*> allocated_keyframes;
 
     // 1. keyframe registration

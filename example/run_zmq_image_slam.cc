@@ -76,24 +76,21 @@ void mono_tracking(const std::shared_ptr<openvslam::config>& cfg,
         
         //  Thread3 opens ALL envelopes
         subscriber.set(zmq::sockopt::subscribe, "");
-        std::this_thread::sleep_for(std::chrono::milliseconds(20));
-
-        std::cout << "before while..." << std::endl;
-        std::this_thread::sleep_for(std::chrono::milliseconds(20));
         while (true) {
-            // std::cout << "waiting for image..." << std::endl;
-            std::this_thread::sleep_for(std::chrono::milliseconds(20));
             // Receive all parts of the message
-            std::vector<zmq::message_t> recv_msgs;
-            zmq::recv_result_t result =
-                zmq::recv_multipart(subscriber, std::back_inserter(recv_msgs));
+            // std::vector<zmq::message_t> recv_msgs;
+            // zmq::recv_result_t result =
+            //     zmq::recv_multipart(subscriber, std::back_inserter(recv_msgs));
+
+            zmq::message_t message;
+            auto result = subscriber.recv(&message);
             assert(result && "recv failed");
 
             // std::cout << "Got " << *result
             //         << " messages" << std::endl;
             assert(*result == 2);
 
-            auto msg0 = recv_msgs[0].to_string();
+            auto msg0 = message.to_string();//recv_msgs[0].to_string();
             std::vector<char> imdata(msg0.begin(), msg0.end());
             auto img = cv::imdecode(imdata, cv::IMREAD_ANYCOLOR);
 

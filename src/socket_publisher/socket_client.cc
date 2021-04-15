@@ -42,6 +42,8 @@ socket_client::socket_client(const std::string& server_uri)
 
     ctx_ = zmq::context_t(1);
     publisher_ = zmq::socket_t(ctx_, zmq::socket_type::pub);
+    int confl = 1;
+    publisher_.setsockopt(ZMQ_CONFLATE, &confl, sizeof(confl));
     publisher_.bind("tcp://*:5566");
 
     socket_->on("signal", std::bind(&socket_client::on_receive, this, std::placeholders::_1));
