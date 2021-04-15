@@ -27,17 +27,25 @@ struct Pose {
     rotation: Array2<f64>,
     translation: Array2<f64>,
 }
+struct StepMark {
+    time: time::SystemTime,
+    pose: Pose,
+}
+impl StepMark {
+    fn should_move(&self, pose: &Pose) -> bool {
+        pose != &self.pose || self.time.elapsed().unwrap().as_secs() > 1
+    }
+}
 struct Values {
     landmarks: HashMap<u32, Vector3>,
     keyframes: HashMap<u32, TypedArray<Vector3>>,
     current_frame: Option<TypedArray<Vector3>>,
-    pose: Pose,
+    last_step_mark: StepMark,
     target: (f64, f64, f64),
     follow_target: bool,
     speed: Option<(f64, f64)>,
     step: Option<(f64, f64, f64)>,
     tracker_state: TrackerState,
-
 }
 
 use std::sync::mpsc;
@@ -63,8 +71,6 @@ enum TrackerState {
     Tracking,
     Lost,
 }
-
-extern crate jpeg_decoder as jpeg;
 
 // #[path = "protos/map_segment.rs"]
 // mod map_segment;
@@ -271,15 +277,18 @@ impl Game {
                 landmarks: HashMap::new(),
                 keyframes: HashMap::new(),
                 current_frame: Some(TypedArray::from_slice(&[Vector3::new(0., 0., 0.)])),
-                pose: Pose {
-                    rotation: Array2::eye(3),
-                    translation: Array2::zeros((3, 1)),
+                last_step_mark: StepMark {
+                    time: time::SystemTime::now(),
+                    pose: Pose {
+                        rotation: Array2::eye(3),
+                        translation: Array2::zeros((3, 1)),
+                    },
                 },
                 target: (0., 0., 0.),
                 follow_target: false,
                 speed: None,
                 step: Some((0., 0., 0.)),
-                tracker_state: TrackerState::NotInitialized
+                tracker_state: TrackerState::NotInitialized,
             },
             pub_vel: publisher,
             rx: None,
@@ -306,7 +315,6 @@ impl Game {
         self.values.speed = Some((left, right));
     }
 
-
     #[export]
     fn set_step(&mut self, _owner: TRef<Node>, left: f64, right: f64, time: f64) {
         self.values.step = Some((left, right, time));
@@ -323,42 +331,41 @@ impl Game {
         self.name = "Game".to_string();
         godot_print!("{} is ready!!!mak", self.name);
 
-        // let context = zmq::Context::new();
+        let context = zmq::Context::new();
 
-        // let (tx, rx): (Sender<items::VSlamMap>, Receiver<items::VSlamMap>) = mpsc::channel();
-        // self.rx = Some(rx);
-        // let thread_tx = tx.clone();
+        let (tx, rx): (Sender<items::VSlamMap>, Receiver<items::VSlamMap>) = mpsc::channel();
+        self.rx = Some(rx);
+        let thread_tx = tx.clone();
 
-        
-        // spawn(move || {
-        //     loop {
-        //         println!("Connecting...");
-        //         // let connection = connect(Url::parse("ws://localhost:3012/socket").unwrap());
-        //         let subscriber = context.socket(zmq::SUB).unwrap();
-        //         subscriber
-        //             .connect("tcp://127.0.0.1:5566")
-        //             .expect("failed connecting subscriber");
-        //         subscriber.set_subscribe(b"").expect("failed subscribing");
+        spawn(move || {
+            loop {
+                println!("Connecting...");
+                // let connection = connect(Url::parse("ws://localhost:3012/socket").unwrap());
+                let subscriber = context.socket(zmq::SUB).unwrap();
+                subscriber
+                    .connect("tcp://127.0.0.1:5566")
+                    .expect("failed connecting subscriber");
+                subscriber.set_subscribe(b"").expect("failed subscribing");
 
-        //         loop {
-        //             let envelope = subscriber
-        //                 .recv_string(0)
-        //                 .expect("failed receiving envelope")
-        //                 .unwrap();
-        //             let message = subscriber.recv_bytes(0).expect("failed receiving message");
-        //             // println!("{:?}", message);
-        //             let message = ::base64::decode(message).unwrap();
-        //             let msg = items::VSlamMap::decode(&mut std::io::Cursor::new(message)).unwrap();
+                loop {
+                    let envelope = subscriber
+                        .recv_string(0)
+                        .expect("failed receiving envelope")
+                        .unwrap();
+                    let message = subscriber.recv_bytes(0).expect("failed receiving message");
+                    // println!("{:?}", message);
+                    let message = ::base64::decode(message).unwrap();
+                    let msg = items::VSlamMap::decode(&mut std::io::Cursor::new(message)).unwrap();
 
-        //             // println!("{:?}", msg);
-        //             // let m = Map::parse_from_bytes(&message);
-        //             // m.merge_from(CodedInputStream::from_bytes(&message));
-        //             // println!("{:?}", m);
-        //             // let msg = format!("[{}] {}", envelope, message);
-        //             thread_tx.send(msg).unwrap();
-        //         }
-        //     }
-        // });
+                    // println!("{:?}", msg);
+                    // let m = Map::parse_from_bytes(&message);
+                    // m.merge_from(CodedInputStream::from_bytes(&message));
+                    // println!("{:?}", m);
+                    // let msg = format!("[{}] {}", envelope, message);
+                    thread_tx.send(msg).unwrap();
+                }
+            }
+        });
 
         let context = zmq::Context::new();
         let (tx, rx): (Sender<Vec<u8>>, Receiver<Vec<u8>>) = mpsc::channel();
@@ -382,8 +389,9 @@ impl Game {
                     //     .unwrap();
                     let message = subscriber.recv_bytes(0).expect("failed receiving message");
                     godot_print!("image in {}", message.len());
-                    thread_tx.send(message).unwrap();
-                    
+                    if message.len() > 0 {
+                        thread_tx.send(message).unwrap();
+                    }
                 }
             }
         });
@@ -391,9 +399,8 @@ impl Game {
     // This function will be called in every frame
     #[export]
     unsafe fn _process(&mut self, _owner: &Node, delta: f64) {
-        let prev_pose = self.values.pose.clone();
         let zero_keyframe = keyframe_vertices();
-
+        let mut new_pose: Option<Pose> = None;
         // let mut vectors: TypedArray<Vector3> = TypedArray::default();
         // for x in -20..=20 {
         //     for y in -20..=20 {
@@ -409,31 +416,48 @@ impl Game {
         //     &[Variant::from_vector3_array(&vectors)],
         // );
 
-        if let Some(rx) = &self.rx_image {
-            while let Ok(pixels) = rx.try_recv() {
-                godot_print!("got image");
-                let thumb = _owner
-                    .get_node("GUI/Thumb")
-                    .unwrap()
-                    .assume_safe()
-                    .cast::<Sprite>()
-                    .unwrap();
-                // let texture = thumb.texture().unwrap().cast::<ImageTexture>().unwrap();
-                let im = Image::new();
-                im.load_jpg_from_buffer(TypedArray::from_vec(pixels));
-                // im.create_from_data(1280, 960, true, Image::FORMAT_RGB8, TypedArray::from_vec(pixels));
-                let imt = ImageTexture::new();
-                
-                imt.create_from_image(im, 7);
-                (*thumb).set_texture(imt);
-            }
-        }
+
+        // if let Some(rx) = &self.rx_image {
+        //     while let Ok(pixels) = rx.try_recv() {
+        //         godot_print!("got image");
+        //         let thumb = _owner
+        //             .get_node("GUI/Cam/Thumb")
+        //             .unwrap()
+        //             .assume_safe()
+        //             .cast::<Sprite>()
+        //             .unwrap();
+        //         // let texture = thumb.texture().unwrap().cast::<ImageTexture>().unwrap();
+        //         let im = Image::new();
+        //         im.load_jpg_from_buffer(TypedArray::from_vec(pixels));
+        //         // im.create_from_data(1280, 960, true, Image::FORMAT_RGB8, TypedArray::from_vec(pixels));
+        //         let imt = ImageTexture::new();
+
+        //         imt.create_from_image(im, 7);
+        //         (*thumb).set_texture(imt);
+        //     }
+        // }
 
         let mut edges = None;
         if let Some(rx) = &self.rx {
             _owner.emit_signal("tick", &[]);
 
             while let Ok(msg) = rx.try_recv() {
+                let last_image = ::base64::decode(msg.last_image).unwrap();
+                let thumb = _owner
+                    .get_node("GUI/Cam/Thumb")
+                    .unwrap()
+                    .assume_safe()
+                    .cast::<Sprite>()
+                    .unwrap();
+                // let texture = thumb.texture().unwrap().cast::<ImageTexture>().unwrap();
+                let im = Image::new();
+                im.load_jpg_from_buffer(TypedArray::from_vec(last_image));
+                // im.create_from_data(1280, 960, true, Image::FORMAT_RGB8, TypedArray::from_vec(pixels));
+                let imt = ImageTexture::new();
+        
+                imt.create_from_image(im, 7);
+                (*thumb).set_texture(imt);
+
                 for landmark in msg.landmarks.iter() {
                     if landmark.coords.len() != 0 {
                         self.values.landmarks.insert(
@@ -453,14 +477,13 @@ impl Game {
 
                 for message in msg.messages.iter() {
                     let text = format!("[{}]: {}", message.tag, message.txt);
-                    godot_print!("{}", text);
                     if message.tag == "TRACKING_STATE" {
                         let tracker_state = match message.txt.as_str() {
                             "NotInitialized" => Some(TrackerState::NotInitialized),
                             "Initializing" => Some(TrackerState::Initializing),
                             "Tracking" => Some(TrackerState::Tracking),
                             "Lost" => Some(TrackerState::Lost),
-                            _ => None
+                            _ => None,
                         };
                         if let Some(tracker_state) = tracker_state {
                             self.values.tracker_state = tracker_state
@@ -498,9 +521,13 @@ impl Game {
                 if let Some(current_frame) = msg.current_frame {
                     let (vertices, rotation, translation) = mat44_to_vertices(&current_frame);
                     self.values.current_frame = Some(vertices);
-                    self.values.pose.rotation.assign(&rotation);
-                    self.values.pose.translation.assign(&translation);
+                    new_pose = Some(Pose {
+                        rotation,
+                        translation,
+                    });
                 }
+
+                
 
                 edges = Some(msg.edges);
 
@@ -573,7 +600,6 @@ impl Game {
             _owner.emit_signal("current_frame", &[current_frame.to_variant()]);
         }
 
-
         let speed = 0.3;
         let turn_speed = 0.5;
 
@@ -593,38 +619,48 @@ impl Game {
             }
             self.pub_vel.send(&cmd, 0).expect("failed to send cmd");
 
-
             get_label("GUI/Speed").set_text(format!("{}", cmd));
             // get_label("GUI/SpeedRight").set_text(format!(">{}", right));
         };
 
         if self.values.follow_target {
-            if prev_pose != self.values.pose {
-                let speed_go = 0.4;
-                let speed_turn = 0.6;
-                let step_time = 0.12;
+            if let Some(pose) = new_pose {
+                if self.values.last_step_mark.should_move(&pose) {
+                    let speed_go = 0.4;
+                    let speed_turn = 0.6;
+                    let step_time = 0.12;
 
-                let pose = &self.values.pose;
-                let dx = self.values.target.0 - pose.translation[[0, 0]];
-                let dz = self.values.target.2 - pose.translation[[2, 0]];
-                let yaw1 = dx.atan2(dz);
-                let m = na::Matrix3::from_row_slice(&pose.rotation.to_owned().into_raw_vec());
-                let yaw2 = na::Rotation3::from_matrix(&m).euler_angles().1;
-                let yawd = angle_difference(yaw2, yaw1);
-                let distance = dx.hypot(dz);
-                godot_print!(
-                    "from {:?} to {:?} is {}mm; yaw1={} yaw2={} yawd={}",
-                    pose.translation, self.values.target, distance, yaw1, yaw2, yawd
-                );
-    
-                if distance < 1.0 {
-                    go(0., 0., None);
-                } else if yawd.abs() < 0.1 {
-                    go(speed_go, speed_go, Some(step_time));
-                } else if yawd > 0. {
-                    go(-speed_turn, speed_turn, Some(step_time));
-                } else {
-                    go(speed_turn, -speed_turn, Some(step_time));
+                    let dx = self.values.target.0 - pose.translation[[0, 0]];
+                    let dz = self.values.target.2 - pose.translation[[2, 0]];
+                    let yaw_target = dx.atan2(dz);
+                    let m = na::Matrix3::from_row_slice(&pose.rotation.to_owned().into_raw_vec());
+                    let yaw_bot = na::Rotation3::from_matrix(&m).euler_angles().1;
+                    let yawd = angle_difference(yaw_bot, yaw_target);
+                    let distance = dx.hypot(dz);
+                    godot_print!(
+                        "from {:?} to {:?} is {}mm; yaw_target={} yaw_bot={} yawd={}",
+                        (dx, dz),
+                        self.values.target,
+                        distance,
+                        yaw_target,
+                        yaw_bot,
+                        yawd
+                    );
+
+                    if distance < 0.2 {
+                        go(0., 0., None);
+                    } else if yawd.abs() < 0.3 {
+                        go(speed_go, speed_go, Some(step_time));
+                    } else if yawd > 0. {
+                        go(speed_turn, -speed_turn, Some(step_time));
+                    } else {
+                        go(-speed_turn, speed_turn, Some(step_time));
+                    }
+
+                    self.values.last_step_mark = StepMark {
+                        time: time::SystemTime::now(),
+                        pose,
+                    };
                 }
             }
         } else {
@@ -633,12 +669,10 @@ impl Game {
                 go(step.0, step.1, Some(step.2));
                 self.values.step = None;
                 self.values.speed = None;
-            }
-            else if let Some(speed) = self.values.speed {
+            } else if let Some(speed) = self.values.speed {
                 go(speed.0, speed.1, None);
-            } 
+            }
         }
-        
 
         get_label("GUI/TrackerState").set_text(format!("{:?}", self.values.tracker_state));
         // let labelNode: Label = _owner.get_node(gd::NodePath::from_str("/root/GUI/SpeedRight")).unwrap().cast::<Label>();

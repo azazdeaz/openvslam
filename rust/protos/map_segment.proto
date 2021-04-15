@@ -35,4 +35,5 @@ message VSlamMap {
     repeated landmark landmarks = 4;
     repeated uint32 local_landmarks = 5;
     repeated msg messages = 6;
+    string last_image = 7;
 }
