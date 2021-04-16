@@ -46,6 +46,7 @@ struct Values {
     speed: Option<(f64, f64)>,
     step: Option<(f64, f64, f64)>,
     tracker_state: TrackerState,
+    marked_keyframe: Option<u32>,
 }
 
 use std::sync::mpsc;
@@ -77,24 +78,49 @@ enum TrackerState {
 // use map_segment::Map;
 // use protobuf;
 
-fn keyframe_vertices() -> Array<f64, Ix2> {
-    let scale = 0.1;
-    let f = 1.0 * scale;
-    let cx = 2.0 * scale;
-    let cy = 1.0 * scale;
-    // let c = na::Vector3::new(0.0,0.0,0.0);
-    // let tl = na::Vector3::new(-cx,cy,f);
-    // let tr = na::Vector3::new(cx,cy,f);
-    // let br = na::Vector3::new(cx,-cy,f);
-    // let bl = na::Vector3::new(-cx,-cy,f);
-    let c = array![0.0, 0.0, 0.0];
-    let tl = array![-cx, cy, f];
-    let tr = array![cx, cy, f];
-    let br = array![cx, -cy, f];
-    let bl = array![-cx, -cy, f];
-    stack![Axis(1), c, tl, tr, c, tr, br, c, br, bl, c, bl, tl]
 
-    // na::Matrix3xX::from_columns(&[c,tl,tr,c,tr,br,c,br,bl,c,bl,tl])
+
+// keyframe_vertices();
+
+#[derive(Default)]
+struct Wireframes {
+    _zero_keyframe: Option<Array<f64, Ix2>>,
+}
+impl Wireframes {
+    fn zero_keyframe(&mut self, rotation: &Array2<f64>, translation: &Array2<f64>) -> Array2<f64> {
+        let zero_keyframe = self._zero_keyframe.get_or_insert_with(|| {
+            let scale = 0.1;
+            let f = 1.0 * scale;
+            let cx = 2.0 * scale;
+            let cy = 1.0 * scale;
+            let c = array![0.0, 0.0, 0.0];
+            let tl = array![-cx, cy, f];
+            let tr = array![cx, cy, f];
+            let br = array![cx, -cy, f];
+            let bl = array![-cx, -cy, f];
+            stack![Axis(1), c, tl, tr, c, tr, br, c, br, bl, c, bl, tl]
+        });
+
+        rotation.dot(zero_keyframe) + translation
+    }
+}
+
+const W: Wireframes = Wireframes {_zero_keyframe: None };
+
+fn mat44_to_vertices (pose: &items::v_slam_map::Mat44) -> (TypedArray<Vector3>, Array2<f64>, Array2<f64>) {
+    let pose = pose.pose.to_vec();
+    let pose = Array::from_vec(pose).into_shape((4, 4)).unwrap();
+    let pose = inv_pose(pose);
+    let rotation = pose.slice(s![0..3, 0..3]).to_owned();
+    let translation = pose.slice(s![0..3, 3..4]).to_owned();
+
+    let vertices = W.zero_keyframe(&rotation, &translation);
+
+    let mut vectors: TypedArray<Vector3> = TypedArray::default();
+    for v in vertices.axis_iter(Axis(1)) {
+        vectors.push(Vector3::new(v[0] as f32, v[1] as f32, v[2] as f32));
+    }
+    (vectors, rotation, translation)
 }
 
 pub fn angle_difference(bearing1: f64, bearing2: f64) -> f64 {
@@ -289,6 +315,7 @@ impl Game {
                 speed: None,
                 step: Some((0., 0., 0.)),
                 tracker_state: TrackerState::NotInitialized,
+                marked_keyframe: None,
             },
             pub_vel: publisher,
             rx: None,
@@ -399,7 +426,6 @@ impl Game {
     // This function will be called in every frame
     #[export]
     unsafe fn _process(&mut self, _owner: &Node, delta: f64) {
-        let zero_keyframe = keyframe_vertices();
         let mut new_pose: Option<Pose> = None;
         // let mut vectors: TypedArray<Vector3> = TypedArray::default();
         // for x in -20..=20 {
@@ -492,27 +518,17 @@ impl Game {
                     _owner.emit_signal("message", &[Variant::from_str(text)]);
                 }
 
-                let mat44_to_vertices = |pose: &items::v_slam_map::Mat44| {
-                    let pose = pose.pose.to_vec();
-                    let pose = Array::from_vec(pose).into_shape((4, 4)).unwrap();
-                    let pose = inv_pose(pose);
-                    let rotation = pose.slice(s![0..3, 0..3]).to_owned();
-                    let translation = pose.slice(s![0..3, 3..4]).to_owned();
-
-                    let vertices = &rotation.dot(&zero_keyframe) + &translation;
-
-                    let mut vectors: TypedArray<Vector3> = TypedArray::default();
-                    for v in vertices.axis_iter(Axis(1)) {
-                        vectors.push(Vector3::new(v[0] as f32, v[1] as f32, v[2] as f32));
-                    }
-                    (vectors, rotation, translation)
-                };
+                
 
                 for keyframe in msg.keyframes.iter() {
                     if let Some(pose) = &keyframe.pose {
                         let (vectors, _, _) = mat44_to_vertices(pose);
 
                         self.values.keyframes.insert(keyframe.id, vectors);
+
+                        if self.values.marked_keyframe == None {
+                            self.values.marked_keyframe = Some(keyframe.id);
+                        }
                     } else {
                         self.values.keyframes.remove(&keyframe.id);
                     }
@@ -598,6 +614,18 @@ impl Game {
 
         if let Some(current_frame) = &self.values.current_frame {
             _owner.emit_signal("current_frame", &[current_frame.to_variant()]);
+        }
+
+        if let Some(marked_keyframe) = &self.values.marked_keyframe {
+            if let Some(vertices) = &self.values.keyframes.get(marked_keyframe) {
+                let marker = _owner
+                    .get_node("Spatial/Marker")
+                    .unwrap()
+                    .assume_safe()
+                    .cast::<CSGBox>()
+                    .unwrap();
+                marker.set_translation(vertices.get(0));
+            }
         }
 
         let speed = 0.3;

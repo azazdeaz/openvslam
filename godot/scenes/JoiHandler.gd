@@ -42,9 +42,9 @@ func _input(event):
 			if event.button_index == 13:
 				game.set_step(-speed_go, -speed_go, step_time)
 			if event.button_index == 14:
-				game.set_step(-speed_turn, speed_turn, step_time)
+				game.set_step(speed_turn*0.2, speed_turn, step_time)
 			if event.button_index == 15:
-				game.set_step(speed_turn, -speed_turn, step_time)
+				game.set_step(speed_turn, speed_turn*0.2, step_time)
 			if event.button_index == 1:
 				game.set_step(0.0, 0.0, 0.0)
 		

@@ -1,4 +1,4 @@
-[gd_scene load_steps=18 format=2]
+[gd_scene load_steps=19 format=2]
 
 [ext_resource path="res://native/Game.gdns" type="Script" id=1]
 [ext_resource path="res://scenes/Ground.tres" type="Material" id=2]
@@ -14,16 +14,19 @@
 [ext_resource path="res://scenes/CamTarget.gd" type="Script" id=12]
 [ext_resource path="res://scenes/ExpandButton.gd" type="Script" id=13]
 
-[sub_resource type="ImageTexture" id=4]
+[sub_resource type="ImageTexture" id=1]
 
-[sub_resource type="PlaneMesh" id=1]
+[sub_resource type="PlaneMesh" id=2]
 
-[sub_resource type="BoxShape" id=2]
+[sub_resource type="BoxShape" id=3]
 
-[sub_resource type="SpatialMaterial" id=3]
+[sub_resource type="SpatialMaterial" id=4]
 flags_use_point_size = true
 params_point_size = 4.9
 albedo_color = Color( 0.329412, 0.87451, 0.231373, 1 )
+
+[sub_resource type="SpatialMaterial" id=5]
+albedo_color = Color( 0.27451, 0.615686, 0.266667, 1 )
 
 [node name="Game" type="Node"]
 script = ExtResource( 1 )
@@ -82,7 +85,7 @@ __meta__ = {
 }
 
 [node name="Thumb" type="Sprite" parent="GUI/Cam"]
-texture = SubResource( 4 )
+texture = SubResource( 1 )
 centered = false
 
 [node name="Button" type="Button" parent="GUI"]
@@ -101,7 +104,7 @@ script = ExtResource( 4 )
 
 [node name="Ground" type="CSGMesh" parent="Spatial"]
 transform = Transform( 300, 0, 0, 0, 1, 0, 0, 0, 300, 0, 0, 0 )
-mesh = SubResource( 1 )
+mesh = SubResource( 2 )
 material = ExtResource( 2 )
 
 [node name="StaticBody" type="StaticBody" parent="Spatial/Ground"]
@@ -110,7 +113,7 @@ script = ExtResource( 3 )
 
 [node name="CollisionShape" type="CollisionShape" parent="Spatial/Ground/StaticBody"]
 transform = Transform( 300, 0, 0, 0, 1, 0, 0, 0, 300, 0, 0, 0 )
-shape = SubResource( 2 )
+shape = SubResource( 3 )
 
 [node name="CamTarget" type="Spatial" parent="Spatial"]
 script = ExtResource( 12 )
@@ -125,7 +128,7 @@ transform = Transform( -1, 3.25841e-07, 0, -3.25841e-07, -1, 0, 0, 0, 1, 0, 0, 0
 
 [node name="Landmarks" type="ImmediateGeometry" parent="Spatial/Frames"]
 layers = 2147483649
-material_override = SubResource( 3 )
+material_override = SubResource( 4 )
 script = ExtResource( 11 )
 
 [node name="Frames" type="ImmediateGeometry" parent="Spatial/Frames"]
@@ -144,6 +147,13 @@ radius = 0.178096
 [node name="Zero" type="CSGSphere" parent="Spatial/Frames"]
 transform = Transform( -1, -3.25841e-07, 0, 3.25841e-07, -1, 0, 0, 0, 1, 0, 0, 0 )
 radius = 0.1
+
+[node name="Marker" type="CSGBox" parent="Spatial"]
+transform = Transform( 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, -10.3837 )
+material_override = SubResource( 5 )
+width = 0.5
+height = 0.5
+depth = 0.5
 [connection signal="current_frame" from="." to="Spatial/CamTarget" method="_on_Game_current_frame"]
 [connection signal="current_frame" from="." to="Spatial/Frames/CurrentFrame" method="_on_Game_current_frame"]
 [connection signal="dry_protobuf" from="." to="Spatial" method="_on_Game_dry_protobuf"]
