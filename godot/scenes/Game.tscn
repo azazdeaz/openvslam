@@ -10,7 +10,6 @@
 [ext_resource path="res://scenes/ShowMessages.vs" type="Script" id=8]
 [ext_resource path="res://scenes/Keyframes.gd" type="Script" id=9]
 [ext_resource path="res://scenes/Edges.gd" type="Script" id=10]
-[ext_resource path="res://scenes/Landmarks.gd" type="Script" id=11]
 [ext_resource path="res://scenes/CamTarget.gd" type="Script" id=12]
 [ext_resource path="res://scenes/ExpandButton.gd" type="Script" id=13]
 
@@ -26,6 +25,9 @@ params_point_size = 4.9
 albedo_color = Color( 0.329412, 0.87451, 0.231373, 1 )
 
 [sub_resource type="SpatialMaterial" id=5]
+albedo_color = Color( 0.670588, 0.0509804, 0.0509804, 1 )
+
+[sub_resource type="SpatialMaterial" id=6]
 albedo_color = Color( 0.27451, 0.615686, 0.266667, 1 )
 
 [node name="Game" type="Node"]
@@ -119,7 +121,7 @@ shape = SubResource( 3 )
 script = ExtResource( 12 )
 
 [node name="TrackballCamera" type="Camera" parent="Spatial/CamTarget"]
-transform = Transform( 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.0367253, 13.972 )
+transform = Transform( 1, 0, 0, 0, 0.900448, 0.434964, 0, -0.434964, 0.900448, 0, 7.09434, 13.972 )
 script = ExtResource( 7 )
 stabilize_horizon = true
 
@@ -129,7 +131,6 @@ transform = Transform( -1, 3.25841e-07, 0, -3.25841e-07, -1, 0, 0, 0, 1, 0, 0, 0
 [node name="Landmarks" type="ImmediateGeometry" parent="Spatial/Frames"]
 layers = 2147483649
 material_override = SubResource( 4 )
-script = ExtResource( 11 )
 
 [node name="Frames" type="ImmediateGeometry" parent="Spatial/Frames"]
 script = ExtResource( 9 )
@@ -143,6 +144,7 @@ script = ExtResource( 6 )
 [node name="Goal" type="CSGSphere" parent="Spatial/Frames"]
 transform = Transform( -1, -3.25841e-07, 0, 3.25841e-07, -1, 0, 0, 0, 1, 0, 0, 0 )
 radius = 0.178096
+material = SubResource( 5 )
 
 [node name="Zero" type="CSGSphere" parent="Spatial/Frames"]
 transform = Transform( -1, -3.25841e-07, 0, 3.25841e-07, -1, 0, 0, 0, 1, 0, 0, 0 )
@@ -150,7 +152,7 @@ radius = 0.1
 
 [node name="Marker" type="CSGBox" parent="Spatial"]
 transform = Transform( 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, -10.3837 )
-material_override = SubResource( 5 )
+material_override = SubResource( 6 )
 width = 0.5
 height = 0.5
 depth = 0.5

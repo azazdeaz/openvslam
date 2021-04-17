@@ -32,3 +32,10 @@ func _input_event(camera, event, click_position, click_normal, shape_idx):
 				click_position.y,
 				click_position.z
 			))
+			
+			var mark = CSGCylinder.new()
+			mark.radius = 0.3
+			mark.height = 0.1
+			mark.sides = 20
+			mark.translation = click_position
+			get_node("/root/Game/Spatial/Frames").add_child(mark)

@@ -73,6 +73,29 @@ enum TrackerState {
     Lost,
 }
 
+
+
+mod Colors {
+    use gdnative::prelude::Color;
+
+    pub struct C {
+        r: i32,
+        g: i32,
+        b: i32
+    }
+    impl C {
+        pub fn as_godot(&self) -> Color {
+            Color::rgb(self.r as f32 / 255., self.g as f32 / 255., self.b as f32 / 255.)
+        }
+    }
+
+    pub const FRAME: C = C { r: 0xe7, g: 0x83, b: 0xfc };
+    pub const EDGE: C = C { r: 0x63, g: 0x92, b: 0xff };
+    pub const CURRENT_FRAME: C = C { r: 0xff, g: 0x77, b: 0x5e };
+    pub const LANDMARK1: C = C { r: 0x1c, g: 0xff, b: 0x9f };
+    pub const LANDMARK2: C = C { r: 0x96, g: 0xff, b: 0x08 };
+}
+
 // #[path = "protos/map_segment.rs"]
 // mod map_segment;
 // use map_segment::Map;
@@ -584,16 +607,31 @@ impl Game {
             .to_variant();
         _owner.emit_signal("keyframe_vertices", &[data]);
 
-        _owner.emit_signal(
-            "points",
-            &[self
-                .values
-                .landmarks
-                .values()
-                .cloned()
-                .collect::<Vec<Vector3>>()
-                .to_variant()],
-        );
+        let landmark_mesh = _owner
+            .get_node("Spatial/Frames/Landmarks")
+            .unwrap()
+            .assume_safe()
+            .cast::<ImmediateGeometry>()
+            .unwrap();
+        landmark_mesh.clear();
+        landmark_mesh.begin(Mesh::PRIMITIVE_POINTS, Null::null());
+        landmark_mesh.set_color(Colors::LANDMARK1.as_godot());
+        for v in self.values.landmarks.values() {
+            landmark_mesh.add_vertex(*v);
+        }
+        landmark_mesh.end();
+
+        
+        // _owner.emit_signal(
+        //     "points",
+        //     &[self
+        //         .values
+        //         .landmarks
+        //         .values()
+        //         .cloned()
+        //         .collect::<Vec<Vector3>>()
+        //         .to_variant()],
+        // );
 
         if let Some(edges_) = edges {
             let lines = edges_
