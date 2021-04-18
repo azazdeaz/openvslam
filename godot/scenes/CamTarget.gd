@@ -17,6 +17,7 @@ func _ready():
 
 
 func _on_Game_current_frame(data):
-	transform.origin = data[0]
+	var translation: Vector3 = data[0]
+	transform.origin = translation.rotated(Vector3.FORWARD, PI)
 	
 

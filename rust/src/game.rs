@@ -38,8 +38,8 @@ impl StepMark {
 }
 struct Values {
     landmarks: HashMap<u32, Vector3>,
-    keyframes: HashMap<u32, TypedArray<Vector3>>,
-    current_frame: Option<TypedArray<Vector3>>,
+    keyframes: HashMap<u32, Vec<Vector3>>,
+    current_frame: Option<Vec<Vector3>>,
     last_step_mark: StepMark,
     target: (f64, f64, f64),
     follow_target: bool,
@@ -130,7 +130,7 @@ impl Wireframes {
 
 const W: Wireframes = Wireframes {_zero_keyframe: None };
 
-fn mat44_to_vertices (pose: &items::v_slam_map::Mat44) -> (TypedArray<Vector3>, Array2<f64>, Array2<f64>) {
+fn mat44_to_vertices (pose: &items::v_slam_map::Mat44) -> (Vec<Vector3>, Array2<f64>, Array2<f64>) {
     let pose = pose.pose.to_vec();
     let pose = Array::from_vec(pose).into_shape((4, 4)).unwrap();
     let pose = inv_pose(pose);
@@ -139,11 +139,17 @@ fn mat44_to_vertices (pose: &items::v_slam_map::Mat44) -> (TypedArray<Vector3>, 
 
     let vertices = W.zero_keyframe(&rotation, &translation);
 
-    let mut vectors: TypedArray<Vector3> = TypedArray::default();
-    for v in vertices.axis_iter(Axis(1)) {
-        vectors.push(Vector3::new(v[0] as f32, v[1] as f32, v[2] as f32));
-    }
-    (vectors, rotation, translation)
+    // let mut vectors: TypedArray<Vector3> = TypedArray::default();
+    // for v in vertices.axis_iter(Axis(1)) {
+    //     vectors.push(Vector3::new(v[0] as f32, v[1] as f32, v[2] as f32));
+    // }
+    // let mut vectors: Vec<Vector3> = vec![];
+    // for v in vertices.axis_iter(Axis(1)) {
+    //     vectors.push(Vector3::new(v[0] as f32, v[1] as f32, v[2] as f32));
+    // }
+    let vertices = vertices.axis_iter(Axis(1));
+    let vertices: Vec<Vector3> = vertices.map(|v| Vector3::new(v[0] as f32, v[1] as f32, v[2] as f32)).collect();
+    (vertices, rotation, translation)
 }
 
 pub fn angle_difference(bearing1: f64, bearing2: f64) -> f64 {
@@ -325,7 +331,7 @@ impl Game {
             values: Values {
                 landmarks: HashMap::new(),
                 keyframes: HashMap::new(),
-                current_frame: Some(TypedArray::from_slice(&[Vector3::new(0., 0., 0.)])),
+                current_frame: Some(vec![Vector3::new(0., 0., 0.)]),
                 last_step_mark: StepMark {
                     time: time::SystemTime::now(),
                     pose: Pose {
@@ -570,101 +576,102 @@ impl Game {
 
                 edges = Some(msg.edges);
 
-                // _owner.emit_signal("dry_protobuf", &[msg.to_variant()]);
-                // println!("MSG IS {}", msg);
-                // if msg["type"] == "position" {
-                //     _owner.emit_signal(
-                //         "position",
-                //         &[Variant::from_vector3(&Vector3::new(
-                //             msg["x"].as_f32().unwrap(),
-                //             msg["y"].as_f32().unwrap(),
-                //             msg["z"].as_f32().unwrap(),
-                //         ))],
-                //     );
+
+                // TODO get these working
+
+                // fn get_node<T: SubClass<gdnative::prelude::Node>>(owner: &Node, path: &str) -> TRef<T> {
+                //     owner
+                //         .get_node(path)
+                //         .unwrap()
+                //         .assume_safe()
+                //         .cast::<T>()
+                //         .unwrap()
                 // }
-                // else if msg["type"] == "points" {
-                //     let points: Vec<f32> = msg["points"].members().map(|n| n.as_f32().unwrap()).collect();
-                //     let mut vectors: TypedArray<Vector3> = TypedArray::default();
-                //     let point_count = points.len() / 3;
-                //     for i in 0..point_count {
-                //         vectors.push(Vector3::new(points[i], points[i+point_count], points[i+point_count*2]))
+
+                // fn draw_mesh(node: TRef<ImmediateGeometry>, vertices: Values<u32, Vector3D>, primitive: i64, color: Colors::C) {
+                //     node.clear();
+                //     node.begin(primitive, Null::null());
+                //     node.set_color(color.as_godot());
+                //     for v in vertices {
+                //         node.add_vertex(*v);
                 //     }
-                //     _owner.emit_signal(
-                //         "points",
-                //         &[Variant::from_vector3_array(&vectors)],
-                //     );
+                //     node.end();
                 // }
-                // _owner.emit_signal("tick_with_data", &[Variant::from_i64(x as i64)]);
-            }
-        }
-
-        let data = self
-            .values
-            .keyframes
-            .values()
-            .cloned()
-            .collect::<Vec<TypedArray<Vector3>>>()
-            .to_variant();
-        _owner.emit_signal("keyframe_vertices", &[data]);
-
-        let landmark_mesh = _owner
-            .get_node("Spatial/Frames/Landmarks")
-            .unwrap()
-            .assume_safe()
-            .cast::<ImmediateGeometry>()
-            .unwrap();
-        landmark_mesh.clear();
-        landmark_mesh.begin(Mesh::PRIMITIVE_POINTS, Null::null());
-        landmark_mesh.set_color(Colors::LANDMARK1.as_godot());
-        for v in self.values.landmarks.values() {
-            landmark_mesh.add_vertex(*v);
-        }
-        landmark_mesh.end();
 
         
-        // _owner.emit_signal(
-        //     "points",
-        //     &[self
-        //         .values
-        //         .landmarks
-        //         .values()
-        //         .cloned()
-        //         .collect::<Vec<Vector3>>()
-        //         .to_variant()],
-        // );
-
-        if let Some(edges_) = edges {
-            let lines = edges_
-                .iter()
-                .filter_map(|e| {
-                    let k0 = self.values.keyframes.get(&e.id0);
-                    let k1 = self.values.keyframes.get(&e.id1);
-                    if let (Some(k0), Some(k1)) = (k0, k1) {
-                        Some(vec![k0.get(0), k1.get(0)])
-                    } else {
-                        None
-                    }
-                })
-                .collect::<Vec<Vec<Vector3>>>();
-
-            _owner.emit_signal("edges", &[lines.to_variant()]);
-        }
-
-        if let Some(current_frame) = &self.values.current_frame {
-            _owner.emit_signal("current_frame", &[current_frame.to_variant()]);
-        }
-
-        if let Some(marked_keyframe) = &self.values.marked_keyframe {
-            if let Some(vertices) = &self.values.keyframes.get(marked_keyframe) {
-                let marker = _owner
-                    .get_node("Spatial/Marker")
+                let frames_mesh = _owner
+                    .get_node("Spatial/Frames/Frames")
                     .unwrap()
                     .assume_safe()
-                    .cast::<CSGBox>()
+                    .cast::<ImmediateGeometry>()
                     .unwrap();
-                marker.set_translation(vertices.get(0));
+                frames_mesh.clear();
+                for vertices in self.values.keyframes.values() {
+                    frames_mesh.begin(Mesh::PRIMITIVE_LINE_STRIP, Null::null());
+                    frames_mesh.set_color(Colors::FRAME.as_godot());
+                    for v in vertices {
+                        frames_mesh.add_vertex(*v);
+                    }
+                    frames_mesh.end();
+                }
+
+                let landmark_mesh = _owner
+                    .get_node("Spatial/Frames/Landmarks")
+                    .unwrap()
+                    .assume_safe()
+                    .cast::<ImmediateGeometry>()
+                    .unwrap();
+                landmark_mesh.clear();
+                landmark_mesh.begin(Mesh::PRIMITIVE_POINTS, Null::null());
+                landmark_mesh.set_color(Colors::LANDMARK1.as_godot());
+                for v in self.values.landmarks.values() {
+                    landmark_mesh.add_vertex(*v);
+                }
+                landmark_mesh.end();
+
+
+                if let Some(edges_) = edges {
+
+                    let edges_mesh = _owner
+                        .get_node("Spatial/Frames/Edges")
+                        .unwrap()
+                        .assume_safe()
+                        .cast::<ImmediateGeometry>()
+                        .unwrap();
+                    edges_mesh.clear();
+                    edges_mesh.begin(Mesh::PRIMITIVE_LINES, Null::null());
+                    edges_mesh.set_color(Colors::EDGE.as_godot());
+                    for e in edges_.iter() {
+                        let k0 = self.values.keyframes.get(&e.id0);
+                        let k1 = self.values.keyframes.get(&e.id1);
+                        if let (Some(k0), Some(k1)) = (k0, k1) {
+                            edges_mesh.add_vertex(k0[0]);
+                            edges_mesh.add_vertex(k1[0]);
+                        }
+                    }
+                    edges_mesh.end();
+                }
+
+                // TODO convert this to some mesh
+                if let Some(current_frame) = &self.values.current_frame {
+                    _owner.emit_signal("current_frame", &[current_frame.to_variant()]);
+                }
+
+                if let Some(marked_keyframe) = &self.values.marked_keyframe {
+                    if let Some(vertices) = &self.values.keyframes.get(marked_keyframe) {
+                        let marker = _owner
+                            .get_node("Spatial/Marker")
+                            .unwrap()
+                            .assume_safe()
+                            .cast::<CSGBox>()
+                            .unwrap();
+                        marker.set_translation(vertices[0]);
+                    }
+                }
             }
         }
+
+        
 
         let speed = 0.3;
         let turn_speed = 0.5;

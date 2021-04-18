@@ -1,4 +1,4 @@
-[gd_scene load_steps=19 format=2]
+[gd_scene load_steps=20 format=2]
 
 [ext_resource path="res://native/Game.gdns" type="Script" id=1]
 [ext_resource path="res://scenes/Ground.tres" type="Material" id=2]
@@ -10,6 +10,7 @@
 [ext_resource path="res://scenes/ShowMessages.vs" type="Script" id=8]
 [ext_resource path="res://scenes/Keyframes.gd" type="Script" id=9]
 [ext_resource path="res://scenes/Edges.gd" type="Script" id=10]
+[ext_resource path="res://scenes/Landmarks.gd" type="Script" id=11]
 [ext_resource path="res://scenes/CamTarget.gd" type="Script" id=12]
 [ext_resource path="res://scenes/ExpandButton.gd" type="Script" id=13]
 
@@ -126,11 +127,12 @@ script = ExtResource( 7 )
 stabilize_horizon = true
 
 [node name="Frames" type="Spatial" parent="Spatial"]
-transform = Transform( -1, 3.25841e-07, 0, -3.25841e-07, -1, 0, 0, 0, 1, 0, 0, 0 )
+transform = Transform( -1, -3.25841e-07, 0, 3.25841e-07, -1, 0, 0, 0, 1, 0, 0, 0 )
 
 [node name="Landmarks" type="ImmediateGeometry" parent="Spatial/Frames"]
 layers = 2147483649
 material_override = SubResource( 4 )
+script = ExtResource( 11 )
 
 [node name="Frames" type="ImmediateGeometry" parent="Spatial/Frames"]
 script = ExtResource( 9 )
