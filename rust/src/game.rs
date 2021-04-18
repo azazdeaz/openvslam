@@ -47,6 +47,7 @@ struct Values {
     step: Option<(f64, f64, f64)>,
     tracker_state: TrackerState,
     marked_keyframe: Option<u32>,
+    camera_pose: Option<Pose>,
 }
 
 use std::sync::mpsc;
@@ -73,35 +74,55 @@ enum TrackerState {
     Lost,
 }
 
-
-
 mod Colors {
     use gdnative::prelude::Color;
 
     pub struct C {
         r: i32,
         g: i32,
-        b: i32
+        b: i32,
     }
     impl C {
         pub fn as_godot(&self) -> Color {
-            Color::rgb(self.r as f32 / 255., self.g as f32 / 255., self.b as f32 / 255.)
+            Color::rgb(
+                self.r as f32 / 255.,
+                self.g as f32 / 255.,
+                self.b as f32 / 255.,
+            )
         }
     }
 
-    pub const FRAME: C = C { r: 0xe7, g: 0x83, b: 0xfc };
-    pub const EDGE: C = C { r: 0x63, g: 0x92, b: 0xff };
-    pub const CURRENT_FRAME: C = C { r: 0xff, g: 0x77, b: 0x5e };
-    pub const LANDMARK1: C = C { r: 0x1c, g: 0xff, b: 0x9f };
-    pub const LANDMARK2: C = C { r: 0x96, g: 0xff, b: 0x08 };
+    pub const FRAME: C = C {
+        r: 0xe7,
+        g: 0x83,
+        b: 0xfc,
+    };
+    pub const EDGE: C = C {
+        r: 0x63,
+        g: 0x92,
+        b: 0xff,
+    };
+    pub const CURRENT_FRAME: C = C {
+        r: 0xff,
+        g: 0x77,
+        b: 0x5e,
+    };
+    pub const LANDMARK1: C = C {
+        r: 0x1c,
+        g: 0xff,
+        b: 0x9f,
+    };
+    pub const LANDMARK2: C = C {
+        r: 0x96,
+        g: 0xff,
+        b: 0x08,
+    };
 }
 
 // #[path = "protos/map_segment.rs"]
 // mod map_segment;
 // use map_segment::Map;
 // use protobuf;
-
-
 
 // keyframe_vertices();
 
@@ -128,9 +149,11 @@ impl Wireframes {
     }
 }
 
-const W: Wireframes = Wireframes {_zero_keyframe: None };
+const W: Wireframes = Wireframes {
+    _zero_keyframe: None,
+};
 
-fn mat44_to_vertices (pose: &items::v_slam_map::Mat44) -> (Vec<Vector3>, Array2<f64>, Array2<f64>) {
+fn mat44_to_vertices(pose: &items::v_slam_map::Mat44) -> (Vec<Vector3>, Array2<f64>, Array2<f64>) {
     let pose = pose.pose.to_vec();
     let pose = Array::from_vec(pose).into_shape((4, 4)).unwrap();
     let pose = inv_pose(pose);
@@ -148,7 +171,9 @@ fn mat44_to_vertices (pose: &items::v_slam_map::Mat44) -> (Vec<Vector3>, Array2<
     //     vectors.push(Vector3::new(v[0] as f32, v[1] as f32, v[2] as f32));
     // }
     let vertices = vertices.axis_iter(Axis(1));
-    let vertices: Vec<Vector3> = vertices.map(|v| Vector3::new(v[0] as f32, v[1] as f32, v[2] as f32)).collect();
+    let vertices: Vec<Vector3> = vertices
+        .map(|v| Vector3::new(v[0] as f32, v[1] as f32, v[2] as f32))
+        .collect();
     (vertices, rotation, translation)
 }
 
@@ -223,77 +248,6 @@ impl Game {
 
     fn register_signals(builder: &ClassBuilder<Self>) {
         builder.add_signal(Signal {
-            name: "tick",
-            args: &[],
-        });
-
-        builder.add_signal(Signal {
-            name: "dry_protobuf",
-            // Argument list used by the editor for GUI and generation of GDScript handlers. It can be omitted if the signal is only used from code.
-            args: &[SignalArgument {
-                name: "data",
-                default: Variant::from_str(""),
-                export_info: ExportInfo::new(VariantType::ByteArray),
-                usage: PropertyUsage::DEFAULT,
-            }],
-        });
-
-        builder.add_signal(Signal {
-            name: "tick_with_data",
-            // Argument list used by the editor for GUI and generation of GDScript handlers. It can be omitted if the signal is only used from code.
-            args: &[SignalArgument {
-                name: "data",
-                default: Variant::from_i64(100),
-                export_info: ExportInfo::new(VariantType::I64),
-                usage: PropertyUsage::DEFAULT,
-            }],
-        });
-
-        builder.add_signal(Signal {
-            name: "position",
-            // Argument list used by the editor for GUI and generation of GDScript handlers. It can be omitted if the signal is only used from code.
-            args: &[SignalArgument {
-                name: "data",
-                default: Variant::from_vector3(&Vector3::new(0., 0., 0.)),
-                export_info: ExportInfo::new(VariantType::Vector3),
-                usage: PropertyUsage::DEFAULT,
-            }],
-        });
-
-        builder.add_signal(Signal {
-            name: "points",
-            // Argument list used by the editor for GUI and generation of GDScript handlers. It can be omitted if the signal is only used from code.
-            args: &[SignalArgument {
-                name: "data",
-                default: Variant::from_vector3_array(&TypedArray::default()),
-                export_info: ExportInfo::new(VariantType::Vector3Array),
-                usage: PropertyUsage::DEFAULT,
-            }],
-        });
-
-        builder.add_signal(Signal {
-            name: "keyframe_vertices",
-            // Argument list used by the editor for GUI and generation of GDScript handlers. It can be omitted if the signal is only used from code.
-            args: &[SignalArgument {
-                name: "data",
-                default: Variant::from_array(&VariantArray::new_shared()),
-                export_info: ExportInfo::new(VariantType::Vector3Array),
-                usage: PropertyUsage::DEFAULT,
-            }],
-        });
-
-        builder.add_signal(Signal {
-            name: "edges",
-            // Argument list used by the editor for GUI and generation of GDScript handlers. It can be omitted if the signal is only used from code.
-            args: &[SignalArgument {
-                name: "data",
-                default: Variant::from_array(&VariantArray::new_shared()),
-                export_info: ExportInfo::new(VariantType::Vector3Array),
-                usage: PropertyUsage::DEFAULT,
-            }],
-        });
-
-        builder.add_signal(Signal {
             name: "current_frame",
             // Argument list used by the editor for GUI and generation of GDScript handlers. It can be omitted if the signal is only used from code.
             args: &[SignalArgument {
@@ -345,6 +299,7 @@ impl Game {
                 step: Some((0., 0., 0.)),
                 tracker_state: TrackerState::NotInitialized,
                 marked_keyframe: None,
+                camera_pose: None,
             },
             pub_vel: publisher,
             rx: None,
@@ -455,23 +410,6 @@ impl Game {
     // This function will be called in every frame
     #[export]
     unsafe fn _process(&mut self, _owner: &Node, delta: f64) {
-        let mut new_pose: Option<Pose> = None;
-        // let mut vectors: TypedArray<Vector3> = TypedArray::default();
-        // for x in -20..=20 {
-        //     for y in -20..=20 {
-        //         for z in -20..=20 {
-        //             vectors.push(Vector3::new(x as f32, y as f32, z as f32));
-        //         }
-        //     }
-        // }
-        // println!("processed");
-
-        // _owner.emit_signal(
-        //     "points",
-        //     &[Variant::from_vector3_array(&vectors)],
-        // );
-
-
         // if let Some(rx) = &self.rx_image {
         //     while let Ok(pixels) = rx.try_recv() {
         //         godot_print!("got image");
@@ -494,8 +432,6 @@ impl Game {
 
         let mut edges = None;
         if let Some(rx) = &self.rx {
-            _owner.emit_signal("tick", &[]);
-
             while let Ok(msg) = rx.try_recv() {
                 let last_image = ::base64::decode(msg.last_image).unwrap();
                 let thumb = _owner
@@ -509,7 +445,7 @@ impl Game {
                 im.load_jpg_from_buffer(TypedArray::from_vec(last_image));
                 // im.create_from_data(1280, 960, true, Image::FORMAT_RGB8, TypedArray::from_vec(pixels));
                 let imt = ImageTexture::new();
-        
+
                 imt.create_from_image(im, 7);
                 (*thumb).set_texture(imt);
 
@@ -547,8 +483,6 @@ impl Game {
                     _owner.emit_signal("message", &[Variant::from_str(text)]);
                 }
 
-                
-
                 for keyframe in msg.keyframes.iter() {
                     if let Some(pose) = &keyframe.pose {
                         let (vectors, _, _) = mat44_to_vertices(pose);
@@ -566,16 +500,13 @@ impl Game {
                 if let Some(current_frame) = msg.current_frame {
                     let (vertices, rotation, translation) = mat44_to_vertices(&current_frame);
                     self.values.current_frame = Some(vertices);
-                    new_pose = Some(Pose {
+                    self.values.camera_pose = Some(Pose {
                         rotation,
                         translation,
                     });
                 }
 
-                
-
                 edges = Some(msg.edges);
-
 
                 // TODO get these working
 
@@ -598,7 +529,6 @@ impl Game {
                 //     node.end();
                 // }
 
-        
                 let frames_mesh = _owner
                     .get_node("Spatial/Frames/Frames")
                     .unwrap()
@@ -629,9 +559,7 @@ impl Game {
                 }
                 landmark_mesh.end();
 
-
                 if let Some(edges_) = edges {
-
                     let edges_mesh = _owner
                         .get_node("Spatial/Frames/Edges")
                         .unwrap()
@@ -657,6 +585,38 @@ impl Game {
                     _owner.emit_signal("current_frame", &[current_frame.to_variant()]);
                 }
 
+                if let Some(camera_pose) = &self.values.camera_pose {
+                    let marker = _owner
+                        .get_node("Spatial/Frames/CurrentPose")
+                        .unwrap()
+                        .assume_safe()
+                        .cast::<Spatial>()
+                        .unwrap();
+                    // marker.transform().origin.x = camera_pose.translation[(0, 0)] as f32;
+                    // marker.transform().origin.y = camera_pose.translation[(1, 0)] as f32;
+                    // marker.transform().origin.z = camera_pose.translation[(2, 0)] as f32;
+                    let origin = Vector3::new(
+                        camera_pose.translation[(0, 0)] as f32,
+                        camera_pose.translation[(1, 0)] as f32,
+                        camera_pose.translation[(2, 0)] as f32,
+                    );
+                    let r = &camera_pose.rotation;
+                    let basis = Basis::from_elements([
+                        // Vector3::new(r[(0,0)] as f32, r[(1,0)] as f32, r[(2,0)] as f32),
+                        // Vector3::new(r[(0,1)] as f32, r[(1,1)] as f32, r[(2,1)] as f32),
+                        // Vector3::new(r[(0,2)] as f32, r[(1,2)] as f32, r[(2,2)] as f32),
+                        Vector3::new(r[(0,0)] as f32, r[(0,1)] as f32, r[(0,2)] as f32),
+                        Vector3::new(r[(1,0)] as f32, r[(1,1)] as f32, r[(1,2)] as f32),
+                        Vector3::new(r[(2,0)] as f32, r[(2,1)] as f32, r[(2,2)] as f32),
+                    ]);
+                    marker.set_transform(Transform{ origin, basis });
+                    godot_print!(
+                        "{:?} {:?}",
+                        marker.transform().origin,
+                        origin
+                    );
+                }
+
                 if let Some(marked_keyframe) = &self.values.marked_keyframe {
                     if let Some(vertices) = &self.values.keyframes.get(marked_keyframe) {
                         let marker = _owner
@@ -670,8 +630,6 @@ impl Game {
                 }
             }
         }
-
-        
 
         let speed = 0.3;
         let turn_speed = 0.5;
@@ -697,7 +655,7 @@ impl Game {
         };
 
         if self.values.follow_target {
-            if let Some(pose) = new_pose {
+            if let Some(pose) = &self.values.camera_pose {
                 if self.values.last_step_mark.should_move(&pose) {
                     let speed_go = 0.4;
                     let speed_turn = 0.6;
@@ -732,7 +690,7 @@ impl Game {
 
                     self.values.last_step_mark = StepMark {
                         time: time::SystemTime::now(),
-                        pose,
+                        pose: pose.clone(),
                     };
                 }
             }

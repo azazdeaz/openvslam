@@ -19,6 +19,10 @@ config/name="mirrors"
 run/main_scene="res://scenes/Game.tscn"
 config/icon="res://assets/godot-ferris-32x32.png"
 
+[debug]
+
+settings/fps/force_fps=60
+
 [display]
 
 window/size/width=1280
