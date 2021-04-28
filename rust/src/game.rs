@@ -14,6 +14,8 @@ pub struct Game {
     rx_image: Option<Receiver<Vec<u8>>>,
 }
 
+
+
 use prost::Message;
 pub mod items {
     include!(concat!(env!("OUT_DIR"), "/map_segment.rs"));
@@ -37,7 +39,8 @@ impl StepMark {
     }
 }
 struct Values {
-    landmarks: HashMap<u32, Vector3>,
+    max_landmark_opservations: u32,
+    landmarks: HashMap<u32, (Vector3, Color)>,
     keyframes: HashMap<u32, Vec<Vector3>>,
     current_frame: Option<Vec<Vector3>>,
     last_step_mark: StepMark,
@@ -73,6 +76,8 @@ enum TrackerState {
     Tracking,
     Lost,
 }
+
+use scarlet::colormap::ListedColorMap;
 
 mod Colors {
     use gdnative::prelude::Color;
@@ -283,6 +288,7 @@ impl Game {
         Game {
             name: "".to_string(),
             values: Values {
+                max_landmark_opservations: 1,
                 landmarks: HashMap::new(),
                 keyframes: HashMap::new(),
                 current_frame: Some(vec![Vector3::new(0., 0., 0.)]),
@@ -378,34 +384,34 @@ impl Game {
             }
         });
 
-        let context = zmq::Context::new();
-        let (tx, rx): (Sender<Vec<u8>>, Receiver<Vec<u8>>) = mpsc::channel();
-        self.rx_image = Some(rx);
-        let thread_tx = tx.clone();
+        // let context = zmq::Context::new();
+        // let (tx, rx): (Sender<Vec<u8>>, Receiver<Vec<u8>>) = mpsc::channel();
+        // self.rx_image = Some(rx);
+        // let thread_tx = tx.clone();
 
-        spawn(move || {
-            loop {
-                println!("Connecting...");
-                // let connection = connect(Url::parse("ws://localhost:3012/socket").unwrap());
-                let subscriber = context.socket(zmq::SUB).unwrap();
-                subscriber
-                    .connect(URL_IMAGE_PUB)
-                    .expect("failed connecting subscriber");
-                subscriber.set_subscribe(b"").expect("failed subscribing");
+        // spawn(move || {
+        //     loop {
+        //         println!("Connecting...");
+        //         // let connection = connect(Url::parse("ws://localhost:3012/socket").unwrap());
+        //         let subscriber = context.socket(zmq::SUB).unwrap();
+        //         subscriber
+        //             .connect(URL_IMAGE_PUB)
+        //             .expect("failed connecting subscriber");
+        //         subscriber.set_subscribe(b"").expect("failed subscribing");
 
-                loop {
-                    // let envelope = subscriber
-                    //     .recv_string(0)
-                    //     .expect("failed receiving envelope")
-                    //     .unwrap();
-                    let message = subscriber.recv_bytes(0).expect("failed receiving message");
-                    godot_print!("image in {}", message.len());
-                    if message.len() > 0 {
-                        thread_tx.send(message).unwrap();
-                    }
-                }
-            }
-        });
+        //         loop {
+        //             // let envelope = subscriber
+        //             //     .recv_string(0)
+        //             //     .expect("failed receiving envelope")
+        //             //     .unwrap();
+        //             let message = subscriber.recv_bytes(0).expect("failed receiving message");
+        //             godot_print!("image in {}", message.len());
+        //             if message.len() > 0 {
+        //                 thread_tx.send(message).unwrap();
+        //             }
+        //         }
+        //     }
+        // });
     }
     // This function will be called in every frame
     #[export]
@@ -449,16 +455,25 @@ impl Game {
                 imt.create_from_image(im, 7);
                 (*thumb).set_texture(imt);
 
+                let colormap: ListedColorMap = ListedColorMap::plasma();
                 for landmark in msg.landmarks.iter() {
                     if landmark.coords.len() != 0 {
+                        if landmark.num_observations > self.values.max_landmark_opservations as i32 {
+                            godot_print!("lm max num ob {}", landmark.num_observations);
+                            self.values.max_landmark_opservations = landmark.num_observations as u32;
+                        }
+                        let val = 0.5 + f64::min(0.5, landmark.num_observations as f64 / 24.0);//self.values.max_landmark_opservations as f64;
+                        let color = colormap.vals[(val * (colormap.vals.len() - 1) as f64) as usize];
+                        let color = Color::rgb(color[0] as f32, color[1] as f32, color[2] as f32);
                         self.values.landmarks.insert(
                             landmark.id,
-                            Vector3::new(
+                            (Vector3::new(
                                 landmark.coords[0] as f32,
                                 landmark.coords[1] as f32,
                                 landmark.coords[2] as f32,
-                            ),
+                            ), color),
                         );
+                        
                     } else {
                         self.values.landmarks.remove(&landmark.id);
                     }
@@ -553,8 +568,9 @@ impl Game {
                     .unwrap();
                 landmark_mesh.clear();
                 landmark_mesh.begin(Mesh::PRIMITIVE_POINTS, Null::null());
-                landmark_mesh.set_color(Colors::LANDMARK1.as_godot());
-                for v in self.values.landmarks.values() {
+                // landmark_mesh.set_color(Colors::LANDMARK1.as_godot());
+                for (v, c) in self.values.landmarks.values() {
+                    landmark_mesh.set_color(*c);
                     landmark_mesh.add_vertex(*v);
                 }
                 landmark_mesh.end();
@@ -610,11 +626,6 @@ impl Game {
                         Vector3::new(r[(2,0)] as f32, r[(2,1)] as f32, r[(2,2)] as f32),
                     ]);
                     marker.set_transform(Transform{ origin, basis });
-                    godot_print!(
-                        "{:?} {:?}",
-                        marker.transform().origin,
-                        origin
-                    );
                 }
 
                 if let Some(marked_keyframe) = &self.values.marked_keyframe {

@@ -21,6 +21,7 @@ protobuf = "2.22.1"
 prost = "0.7.0"
 base64 = "0.13.0"
 hashbrown = "*"
+scarlet = "1.1.0"
 # gdnative = { path = "../../godot-rust/gdnative" }
 
 [build-dependencies]
