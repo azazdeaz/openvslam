@@ -12,7 +12,7 @@ gdnative = "0.9.3"
 tungstenite = "0.13.0"
 async-tungstenite = "0.13.0"
 json = "0.12.4"
-nalgebra = "*"
+nalgebra = "0.25"
 ndarray = "0.15.1"
 ndarray-linalg = "0.13.1"
 url = "2.2.0"
@@ -22,6 +22,8 @@ prost = "0.7.0"
 base64 = "0.13.0"
 hashbrown = "*"
 scarlet = "1.1.0"
+rosrust = "0.9"
+rosrust_msg = "0.1"
 # gdnative = { path = "../../godot-rust/gdnative" }
 
 [build-dependencies]

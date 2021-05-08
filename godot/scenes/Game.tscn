@@ -1,4 +1,4 @@
-[gd_scene load_steps=24 format=2]
+[gd_scene load_steps=22 format=2]
 
 [ext_resource path="res://native/Game.gdns" type="Script" id=1]
 [ext_resource path="res://scenes/Ground.tres" type="Material" id=2]
@@ -14,7 +14,8 @@
 [ext_resource path="res://scenes/CamTarget.gd" type="Script" id=12]
 [ext_resource path="res://scenes/ExpandButton.gd" type="Script" id=13]
 [ext_resource path="res://scenes/Fps.gd" type="Script" id=14]
-[ext_resource path="res://scenes/PoseMat.tres" type="Material" id=15]
+[ext_resource path="res://scenes/PoseGTMat.tres" type="Material" id=15]
+[ext_resource path="res://PoseMarker.tscn" type="PackedScene" id=16]
 
 [sub_resource type="ImageTexture" id=1]
 
@@ -29,17 +30,6 @@ albedo_color = Color( 0.329412, 0.87451, 0.231373, 1 )
 
 [sub_resource type="SpatialMaterial" id=5]
 albedo_color = Color( 0.670588, 0.0509804, 0.0509804, 1 )
-
-[sub_resource type="CubeMesh" id=9]
-material = ExtResource( 15 )
-size = Vector3( 0.2, 12, 0.2 )
-
-[sub_resource type="PrismMesh" id=8]
-material = ExtResource( 15 )
-size = Vector3( 2, 1, 1 )
-
-[sub_resource type="SpatialMaterial" id=6]
-albedo_color = Color( 0.27451, 0.615686, 0.266667, 1 )
 
 [node name="Game" type="Node"]
 script = ExtResource( 1 )
@@ -143,6 +133,7 @@ script = ExtResource( 12 )
 transform = Transform( 1, 0, 0, 0, 0.900448, 0.434964, 0, -0.434964, 0.900448, 0, 7.09434, 13.972 )
 script = ExtResource( 7 )
 stabilize_horizon = true
+joystick_enabled = false
 
 [node name="Frames" type="Spatial" parent="Spatial"]
 transform = Transform( -1, -3.25841e-07, 0, 3.25841e-07, -1, 0, 0, 0, 1, 0, 0, 0 )
@@ -171,25 +162,29 @@ material = SubResource( 5 )
 transform = Transform( -1, -3.25841e-07, 0, 3.25841e-07, -1, 0, 0, 0, 1, 0, 0, 0 )
 radius = 0.1
 
-[node name="CurrentPose" type="Spatial" parent="Spatial/Frames"]
+[node name="CurrentPose" parent="Spatial/Frames" instance=ExtResource( 16 )]
 
-[node name="Scaler" type="Spatial" parent="Spatial/Frames/CurrentPose"]
-transform = Transform( 0.2, 0, 0, 0, 0.2, 0, 0, 0, 0.2, 0, 0, 0 )
+[node name="RosFrame" type="Spatial" parent="Spatial"]
 
-[node name="CSGMesh" type="CSGMesh" parent="Spatial/Frames/CurrentPose/Scaler"]
-transform = Transform( 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -6, 0 )
-mesh = SubResource( 9 )
+[node name="GTPose" type="Spatial" parent="Spatial/RosFrame"]
 
-[node name="CSGMesh2" type="CSGMesh" parent="Spatial/Frames/CurrentPose/Scaler"]
-transform = Transform( 1, 0, 0, 0, -1.62921e-07, 1, 0, -1, -1.62921e-07, 0, 0, 0.5 )
-mesh = SubResource( 8 )
+[node name="GTPose" parent="Spatial/RosFrame/GTPose" instance=ExtResource( 16 )]
+transform = Transform( 2.84217e-14, -1.62921e-07, 1, -1, -1.62921e-07, 0, 1.62921e-07, -1, -1.62921e-07, 0, 0, 0 )
+
+[node name="CSGMesh" parent="Spatial/RosFrame/GTPose/GTPose/Scaler" index="0"]
+material = ExtResource( 15 )
+
+[node name="CSGMesh2" parent="Spatial/RosFrame/GTPose/GTPose/Scaler" index="1"]
+material = ExtResource( 15 )
 
 [node name="Marker" type="CSGBox" parent="Spatial"]
 transform = Transform( 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, -10.3837 )
-material_override = SubResource( 6 )
+material_override = ExtResource( 15 )
 width = 0.5
 height = 0.5
 depth = 0.5
 [connection signal="current_frame" from="." to="Spatial/CamTarget" method="_on_Game_current_frame"]
 [connection signal="message" from="." to="GUI/RichTextLabel" method="_on_Game_message"]
 [connection signal="pressed" from="GUI/Button" to="GUI/Button" method="_on_Button_pressed"]
+
+[editable path="Spatial/RosFrame/GTPose/GTPose"]

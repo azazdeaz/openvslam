@@ -8,6 +8,7 @@ var right_reversed = false
 func report():
 	var l = -left if left_reversed else left
 	var r = -right if right_reversed else right
+	print(l,r)
 	get_node("/root/Game").set_speed(l, r)
 
 var speed_go = 0.4
@@ -19,11 +20,12 @@ func _input(event):
 	var game = get_node("/root/Game")
 	
 	if event is InputEventJoypadMotion:
+		var cap = 1
 		if event.axis == 6:
-			left = event.axis_value
+			left = round(event.axis_value * 100 * cap)/100
 			report()
 		if event.axis == 7:
-			right = event.axis_value
+			right = round(event.axis_value * 100 * cap)/100
 			report()
 			
 	elif event is InputEventJoypadButton:

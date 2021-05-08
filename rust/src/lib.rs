@@ -1,4 +1,5 @@
 mod game;
+mod msg;
 
 use gdnative::prelude::{godot_init, InitHandle};
 

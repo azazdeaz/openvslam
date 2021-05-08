@@ -6,16 +6,21 @@ use gdnative::prelude::*;
 #[inherit(Node)]
 // #[register_with(Self::register_builder)]
 #[register_with(Self::register_signals)]
+
 pub struct Game {
     name: String,
     values: Values,
     pub_vel: zmq::Socket,
-    rx: Option<Receiver<items::VSlamMap>>,
-    rx_image: Option<Receiver<Vec<u8>>>,
+    rx: Option<Receiver<Incoming>>,
+    sub_tf_gt: Option<rosrust::Subscriber>,
 }
 
+enum Incoming {
+    OpenVSlamPB(items::VSlamMap),
+    GroundTruthPose(na::Isometry3<f64>),
+}
 
-
+use na::UnitQuaternion;
 use prost::Message;
 pub mod items {
     include!(concat!(env!("OUT_DIR"), "/map_segment.rs"));
@@ -50,7 +55,9 @@ struct Values {
     step: Option<(f64, f64, f64)>,
     tracker_state: TrackerState,
     marked_keyframe: Option<u32>,
-    camera_pose: Option<Pose>,
+    camera_pose: Option<na::Isometry3<f64>>,
+    ground_truth_pose: Option<Transform>,
+    first_ground_truth_pose: Option<na::Isometry3<f64>>,
 }
 
 use std::sync::mpsc;
@@ -64,6 +71,8 @@ use std::{
 use url::Url;
 use zmq;
 
+use crate::msg;
+
 extern crate nalgebra as na;
 
 use ndarray::prelude::*;
@@ -76,6 +85,7 @@ enum TrackerState {
     Tracking,
     Lost,
 }
+
 
 use scarlet::colormap::ListedColorMap;
 
@@ -166,20 +176,24 @@ fn mat44_to_vertices(pose: &items::v_slam_map::Mat44) -> (Vec<Vector3>, Array2<f
     let translation = pose.slice(s![0..3, 3..4]).to_owned();
 
     let vertices = W.zero_keyframe(&rotation, &translation);
-
-    // let mut vectors: TypedArray<Vector3> = TypedArray::default();
-    // for v in vertices.axis_iter(Axis(1)) {
-    //     vectors.push(Vector3::new(v[0] as f32, v[1] as f32, v[2] as f32));
-    // }
-    // let mut vectors: Vec<Vector3> = vec![];
-    // for v in vertices.axis_iter(Axis(1)) {
-    //     vectors.push(Vector3::new(v[0] as f32, v[1] as f32, v[2] as f32));
-    // }
     let vertices = vertices.axis_iter(Axis(1));
     let vertices: Vec<Vector3> = vertices
         .map(|v| Vector3::new(v[0] as f32, v[1] as f32, v[2] as f32))
         .collect();
     (vertices, rotation, translation)
+}
+
+fn mat44_to_isometry3(pose: &items::v_slam_map::Mat44) -> na::Isometry3<f64> {
+    let d = pose.pose.to_vec();
+    let translation = na::Translation3::new(d[3], d[7], d[11]);
+    let rotation = na::Matrix3::new(
+        d[0], d[1], d[2],
+        d[4], d[5], d[6],
+        d[8], d[9], d[10],
+    );
+    let rotation = na::Rotation3::from_matrix(&rotation);
+    let rotation = UnitQuaternion::from_rotation_matrix(&rotation);
+    na::Isometry3::from_parts(translation, rotation)
 }
 
 pub fn angle_difference(bearing1: f64, bearing2: f64) -> f64 {
@@ -193,6 +207,21 @@ pub fn angle_difference(bearing1: f64, bearing2: f64) -> f64 {
     } else {
         diff
     }
+}
+
+fn iso3_to_gd(iso: &na::Isometry3<f64>) -> Transform {
+    let origin = Vector3::new(
+        iso.translation.x as f32,
+        iso.translation.y as f32,
+        iso.translation.z as f32,
+    );
+    let r = iso.rotation.to_rotation_matrix();
+    let basis = Basis::from_elements([
+        Vector3::new(r[(0, 0)] as f32, r[(0, 1)] as f32, r[(0, 2)] as f32),
+        Vector3::new(r[(1, 0)] as f32, r[(1, 1)] as f32, r[(1, 2)] as f32),
+        Vector3::new(r[(2, 0)] as f32, r[(2, 1)] as f32, r[(2, 2)] as f32),
+    ]);
+    Transform { origin, basis }
 }
 
 // NOTE: I have no idea what im doing...
@@ -306,10 +335,12 @@ impl Game {
                 tracker_state: TrackerState::NotInitialized,
                 marked_keyframe: None,
                 camera_pose: None,
+                ground_truth_pose: None,
+                first_ground_truth_pose: None,
             },
             pub_vel: publisher,
             rx: None,
-            rx_image: None,
+            sub_tf_gt: None,
         }
     }
 
@@ -350,7 +381,7 @@ impl Game {
 
         let context = zmq::Context::new();
 
-        let (tx, rx): (Sender<items::VSlamMap>, Receiver<items::VSlamMap>) = mpsc::channel();
+        let (tx, rx): (Sender<Incoming>, Receiver<Incoming>) = mpsc::channel();
         self.rx = Some(rx);
         let thread_tx = tx.clone();
 
@@ -379,10 +410,49 @@ impl Game {
                     // m.merge_from(CodedInputStream::from_bytes(&message));
                     // println!("{:?}", m);
                     // let msg = format!("[{}] {}", envelope, message);
-                    thread_tx.send(msg).unwrap();
+                    thread_tx.send(Incoming::OpenVSlamPB(msg)).unwrap();
                 }
             }
         });
+
+        rosrust::init("listener");
+
+        let thread_tx2 = tx.clone();
+        // Create subscriber
+        // The subscriber is stopped when the returned object is destroyed
+        self.sub_tf_gt = Some(
+            rosrust::subscribe(
+                "/X1/pose_static",
+                100,
+                move |v: msg::tf2_msgs::TFMessage| {
+                    // Callback for handling received messages
+                    // godot_print!("Received: {:?}", v);
+                    for t in v.transforms {
+                        godot_print!("{} -> {}", t.header.frame_id, t.child_frame_id);
+                        if t.child_frame_id == "X1" {
+                            let origin = na::Translation3::new(
+                                t.transform.translation.x,
+                                t.transform.translation.y,
+                                t.transform.translation.z,
+                            );
+                            let r = na::UnitQuaternion::from_quaternion(na::Quaternion {
+                                coords: na::Vector4::new(
+                                    t.transform.rotation.x,
+                                    t.transform.rotation.y,
+                                    t.transform.rotation.z,
+                                    t.transform.rotation.w,
+                                ),
+                            });
+                            let iso = na::Isometry3::from_parts(origin, r);
+
+                            thread_tx2.send(Incoming::GroundTruthPose(iso)).unwrap();
+                        }
+                    }
+                },
+            )
+            .unwrap(),
+        );
+        godot_print!("_subscriber_raii ");
 
         // let context = zmq::Context::new();
         // let (tx, rx): (Sender<Vec<u8>>, Receiver<Vec<u8>>) = mpsc::channel();
@@ -439,204 +509,246 @@ impl Game {
         let mut edges = None;
         if let Some(rx) = &self.rx {
             while let Ok(msg) = rx.try_recv() {
-                let last_image = ::base64::decode(msg.last_image).unwrap();
-                let thumb = _owner
-                    .get_node("GUI/Cam/Thumb")
-                    .unwrap()
-                    .assume_safe()
-                    .cast::<Sprite>()
-                    .unwrap();
-                // let texture = thumb.texture().unwrap().cast::<ImageTexture>().unwrap();
-                let im = Image::new();
-                im.load_jpg_from_buffer(TypedArray::from_vec(last_image));
-                // im.create_from_data(1280, 960, true, Image::FORMAT_RGB8, TypedArray::from_vec(pixels));
-                let imt = ImageTexture::new();
+                match msg {
+                    Incoming::GroundTruthPose(iso) => {
+                        godot_print!("TRANSFORM {:?}", iso);
+                        if self.values.first_ground_truth_pose.is_none() {
+                            self.values.first_ground_truth_pose = Some(iso);
+                        } else if let Some(first_iso) = self.values.first_ground_truth_pose {
+                            let iso = first_iso.inverse() * iso;
+                            let ROT_ROS2GODOT: na::UnitQuaternion<f64> = na::UnitQuaternion::from_euler_angles(
+                                -std::f64::consts::FRAC_PI_2,
+                                -std::f64::consts::FRAC_PI_2,
+                                0.,
+                            );
+                            let ROS2GODOT: na::Isometry3<f64> =
+                                na::Isometry3::from_parts(na::Translation3::identity(), ROT_ROS2GODOT);                            
+                            let iso = ROS2GODOT * iso;
+                            let marker = _owner
+                                .get_node("Spatial/RosFrame/GTPose")
+                                .unwrap()
+                                .assume_safe()
+                                .cast::<Spatial>()
+                                .unwrap();
+                            marker.set_transform(iso3_to_gd(&iso));
 
-                imt.create_from_image(im, 7);
-                (*thumb).set_texture(imt);
-
-                let colormap: ListedColorMap = ListedColorMap::plasma();
-                for landmark in msg.landmarks.iter() {
-                    if landmark.coords.len() != 0 {
-                        if landmark.num_observations > self.values.max_landmark_opservations as i32 {
-                            godot_print!("lm max num ob {}", landmark.num_observations);
-                            self.values.max_landmark_opservations = landmark.num_observations as u32;
-                        }
-                        let val = 0.5 + f64::min(0.5, landmark.num_observations as f64 / 24.0);//self.values.max_landmark_opservations as f64;
-                        let color = colormap.vals[(val * (colormap.vals.len() - 1) as f64) as usize];
-                        let color = Color::rgb(color[0] as f32, color[1] as f32, color[2] as f32);
-                        self.values.landmarks.insert(
-                            landmark.id,
-                            (Vector3::new(
-                                landmark.coords[0] as f32,
-                                landmark.coords[1] as f32,
-                                landmark.coords[2] as f32,
-                            ), color),
-                        );
-                        
-                    } else {
-                        self.values.landmarks.remove(&landmark.id);
-                    }
-                    // println!("landmark {:?}", landmark.color);
-                    // vectors.push(landmark.coords);
-                }
-
-                for message in msg.messages.iter() {
-                    let text = format!("[{}]: {}", message.tag, message.txt);
-                    if message.tag == "TRACKING_STATE" {
-                        let tracker_state = match message.txt.as_str() {
-                            "NotInitialized" => Some(TrackerState::NotInitialized),
-                            "Initializing" => Some(TrackerState::Initializing),
-                            "Tracking" => Some(TrackerState::Tracking),
-                            "Lost" => Some(TrackerState::Lost),
-                            _ => None,
-                        };
-                        if let Some(tracker_state) = tracker_state {
-                            self.values.tracker_state = tracker_state
+                            if let Some(camera_pose) = &self.values.camera_pose {
+                                let scale = iso.translation.vector.magnitude() / camera_pose.translation.vector.magnitude();
+                                godot_print!("SCALE={}", scale);
+                                if scale.is_normal() {
+                                    let frames = _owner
+                                        .get_node("Spatial/Frames")
+                                        .unwrap()
+                                        .assume_safe()
+                                        .cast::<Spatial>()
+                                        .unwrap();
+                                    
+                                    frames.set_scale(Vector3::new(scale as f32, scale as f32, scale as f32));
+                                }
+                            }
                         }
                     }
-                    _owner.emit_signal("message", &[Variant::from_str(text)]);
-                }
-
-                for keyframe in msg.keyframes.iter() {
-                    if let Some(pose) = &keyframe.pose {
-                        let (vectors, _, _) = mat44_to_vertices(pose);
-
-                        self.values.keyframes.insert(keyframe.id, vectors);
-
-                        if self.values.marked_keyframe == None {
-                            self.values.marked_keyframe = Some(keyframe.id);
-                        }
-                    } else {
-                        self.values.keyframes.remove(&keyframe.id);
-                    }
-                }
-
-                if let Some(current_frame) = msg.current_frame {
-                    let (vertices, rotation, translation) = mat44_to_vertices(&current_frame);
-                    self.values.current_frame = Some(vertices);
-                    self.values.camera_pose = Some(Pose {
-                        rotation,
-                        translation,
-                    });
-                }
-
-                edges = Some(msg.edges);
-
-                // TODO get these working
-
-                // fn get_node<T: SubClass<gdnative::prelude::Node>>(owner: &Node, path: &str) -> TRef<T> {
-                //     owner
-                //         .get_node(path)
-                //         .unwrap()
-                //         .assume_safe()
-                //         .cast::<T>()
-                //         .unwrap()
-                // }
-
-                // fn draw_mesh(node: TRef<ImmediateGeometry>, vertices: Values<u32, Vector3D>, primitive: i64, color: Colors::C) {
-                //     node.clear();
-                //     node.begin(primitive, Null::null());
-                //     node.set_color(color.as_godot());
-                //     for v in vertices {
-                //         node.add_vertex(*v);
-                //     }
-                //     node.end();
-                // }
-
-                let frames_mesh = _owner
-                    .get_node("Spatial/Frames/Frames")
-                    .unwrap()
-                    .assume_safe()
-                    .cast::<ImmediateGeometry>()
-                    .unwrap();
-                frames_mesh.clear();
-                for vertices in self.values.keyframes.values() {
-                    frames_mesh.begin(Mesh::PRIMITIVE_LINE_STRIP, Null::null());
-                    frames_mesh.set_color(Colors::FRAME.as_godot());
-                    for v in vertices {
-                        frames_mesh.add_vertex(*v);
-                    }
-                    frames_mesh.end();
-                }
-
-                let landmark_mesh = _owner
-                    .get_node("Spatial/Frames/Landmarks")
-                    .unwrap()
-                    .assume_safe()
-                    .cast::<ImmediateGeometry>()
-                    .unwrap();
-                landmark_mesh.clear();
-                landmark_mesh.begin(Mesh::PRIMITIVE_POINTS, Null::null());
-                // landmark_mesh.set_color(Colors::LANDMARK1.as_godot());
-                for (v, c) in self.values.landmarks.values() {
-                    landmark_mesh.set_color(*c);
-                    landmark_mesh.add_vertex(*v);
-                }
-                landmark_mesh.end();
-
-                if let Some(edges_) = edges {
-                    let edges_mesh = _owner
-                        .get_node("Spatial/Frames/Edges")
-                        .unwrap()
-                        .assume_safe()
-                        .cast::<ImmediateGeometry>()
-                        .unwrap();
-                    edges_mesh.clear();
-                    edges_mesh.begin(Mesh::PRIMITIVE_LINES, Null::null());
-                    edges_mesh.set_color(Colors::EDGE.as_godot());
-                    for e in edges_.iter() {
-                        let k0 = self.values.keyframes.get(&e.id0);
-                        let k1 = self.values.keyframes.get(&e.id1);
-                        if let (Some(k0), Some(k1)) = (k0, k1) {
-                            edges_mesh.add_vertex(k0[0]);
-                            edges_mesh.add_vertex(k1[0]);
-                        }
-                    }
-                    edges_mesh.end();
-                }
-
-                // TODO convert this to some mesh
-                if let Some(current_frame) = &self.values.current_frame {
-                    _owner.emit_signal("current_frame", &[current_frame.to_variant()]);
-                }
-
-                if let Some(camera_pose) = &self.values.camera_pose {
-                    let marker = _owner
-                        .get_node("Spatial/Frames/CurrentPose")
-                        .unwrap()
-                        .assume_safe()
-                        .cast::<Spatial>()
-                        .unwrap();
-                    // marker.transform().origin.x = camera_pose.translation[(0, 0)] as f32;
-                    // marker.transform().origin.y = camera_pose.translation[(1, 0)] as f32;
-                    // marker.transform().origin.z = camera_pose.translation[(2, 0)] as f32;
-                    let origin = Vector3::new(
-                        camera_pose.translation[(0, 0)] as f32,
-                        camera_pose.translation[(1, 0)] as f32,
-                        camera_pose.translation[(2, 0)] as f32,
-                    );
-                    let r = &camera_pose.rotation;
-                    let basis = Basis::from_elements([
-                        // Vector3::new(r[(0,0)] as f32, r[(1,0)] as f32, r[(2,0)] as f32),
-                        // Vector3::new(r[(0,1)] as f32, r[(1,1)] as f32, r[(2,1)] as f32),
-                        // Vector3::new(r[(0,2)] as f32, r[(1,2)] as f32, r[(2,2)] as f32),
-                        Vector3::new(r[(0,0)] as f32, r[(0,1)] as f32, r[(0,2)] as f32),
-                        Vector3::new(r[(1,0)] as f32, r[(1,1)] as f32, r[(1,2)] as f32),
-                        Vector3::new(r[(2,0)] as f32, r[(2,1)] as f32, r[(2,2)] as f32),
-                    ]);
-                    marker.set_transform(Transform{ origin, basis });
-                }
-
-                if let Some(marked_keyframe) = &self.values.marked_keyframe {
-                    if let Some(vertices) = &self.values.keyframes.get(marked_keyframe) {
-                        let marker = _owner
-                            .get_node("Spatial/Marker")
+                    Incoming::OpenVSlamPB(msg) => {
+                        let last_image = ::base64::decode(msg.last_image).unwrap();
+                        let thumb = _owner
+                            .get_node("GUI/Cam/Thumb")
                             .unwrap()
                             .assume_safe()
-                            .cast::<CSGBox>()
+                            .cast::<Sprite>()
                             .unwrap();
-                        marker.set_translation(vertices[0]);
+                        // let texture = thumb.texture().unwrap().cast::<ImageTexture>().unwrap();
+                        let im = Image::new();
+                        im.load_jpg_from_buffer(TypedArray::from_vec(last_image));
+                        // im.create_from_data(1280, 960, true, Image::FORMAT_RGB8, TypedArray::from_vec(pixels));
+                        let imt = ImageTexture::new();
+
+                        imt.create_from_image(im, 7);
+                        (*thumb).set_texture(imt);
+
+                        let colormap: ListedColorMap = ListedColorMap::plasma();
+                        for landmark in msg.landmarks.iter() {
+                            if landmark.coords.len() != 0 {
+                                if landmark.num_observations
+                                    > self.values.max_landmark_opservations as i32
+                                {
+                                    godot_print!("lm max num ob {}", landmark.num_observations);
+                                    self.values.max_landmark_opservations =
+                                        landmark.num_observations as u32;
+                                }
+                                let val =
+                                    0.5 + f64::min(0.5, landmark.num_observations as f64 / 24.0); //self.values.max_landmark_opservations as f64;
+                                let color = colormap.vals
+                                    [(val * (colormap.vals.len() - 1) as f64) as usize];
+                                let color =
+                                    Color::rgb(color[0] as f32, color[1] as f32, color[2] as f32);
+                                self.values.landmarks.insert(
+                                    landmark.id,
+                                    (
+                                        Vector3::new(
+                                            landmark.coords[0] as f32,
+                                            landmark.coords[1] as f32,
+                                            landmark.coords[2] as f32,
+                                        ),
+                                        color,
+                                    ),
+                                );
+                            } else {
+                                self.values.landmarks.remove(&landmark.id);
+                            }
+                            // println!("landmark {:?}", landmark.color);
+                            // vectors.push(landmark.coords);
+                        }
+
+                        for message in msg.messages.iter() {
+                            let text = format!("[{}]: {}", message.tag, message.txt);
+                            if message.tag == "TRACKING_STATE" {
+                                let tracker_state = match message.txt.as_str() {
+                                    "NotInitialized" => Some(TrackerState::NotInitialized),
+                                    "Initializing" => Some(TrackerState::Initializing),
+                                    "Tracking" => Some(TrackerState::Tracking),
+                                    "Lost" => Some(TrackerState::Lost),
+                                    _ => None,
+                                };
+                                if let Some(tracker_state) = tracker_state {
+                                    self.values.tracker_state = tracker_state
+                                }
+                            }
+                            _owner.emit_signal("message", &[Variant::from_str(text)]);
+                        }
+
+                        for keyframe in msg.keyframes.iter() {
+                            if let Some(pose) = &keyframe.pose {
+                                let (vectors, _, _) = mat44_to_vertices(pose);
+
+                                self.values.keyframes.insert(keyframe.id, vectors);
+
+                                if self.values.marked_keyframe == None {
+                                    self.values.marked_keyframe = Some(keyframe.id);
+                                }
+                            } else {
+                                self.values.keyframes.remove(&keyframe.id);
+                            }
+                        }
+
+                        if let Some(current_frame) = msg.current_frame {
+                            let (vertices, rotation, translation) =
+                                mat44_to_vertices(&current_frame);
+                            self.values.current_frame = Some(vertices);
+                            self.values.camera_pose = Some(mat44_to_isometry3(&current_frame));
+                        }
+
+                        edges = Some(msg.edges);
+
+                        // TODO get these working
+
+                        // fn get_node<T: SubClass<gdnative::prelude::Node>>(owner: &Node, path: &str) -> TRef<T> {
+                        //     owner
+                        //         .get_node(path)
+                        //         .unwrap()
+                        //         .assume_safe()
+                        //         .cast::<T>()
+                        //         .unwrap()
+                        // }
+
+                        // fn draw_mesh(node: TRef<ImmediateGeometry>, vertices: Values<u32, Vector3D>, primitive: i64, color: Colors::C) {
+                        //     node.clear();
+                        //     node.begin(primitive, Null::null());
+                        //     node.set_color(color.as_godot());
+                        //     for v in vertices {
+                        //         node.add_vertex(*v);
+                        //     }
+                        //     node.end();
+                        // }
+
+                        let frames_mesh = _owner
+                            .get_node("Spatial/Frames/Frames")
+                            .unwrap()
+                            .assume_safe()
+                            .cast::<ImmediateGeometry>()
+                            .unwrap();
+                        frames_mesh.clear();
+                        for vertices in self.values.keyframes.values() {
+                            frames_mesh.begin(Mesh::PRIMITIVE_LINE_STRIP, Null::null());
+                            frames_mesh.set_color(Colors::FRAME.as_godot());
+                            for v in vertices {
+                                frames_mesh.add_vertex(*v);
+                            }
+                            frames_mesh.end();
+                        }
+
+                        let landmark_mesh = _owner
+                            .get_node("Spatial/Frames/Landmarks")
+                            .unwrap()
+                            .assume_safe()
+                            .cast::<ImmediateGeometry>()
+                            .unwrap();
+                        landmark_mesh.clear();
+                        landmark_mesh.begin(Mesh::PRIMITIVE_POINTS, Null::null());
+                        // landmark_mesh.set_color(Colors::LANDMARK1.as_godot());
+                        for (v, c) in self.values.landmarks.values() {
+                            landmark_mesh.set_color(*c);
+                            landmark_mesh.add_vertex(*v);
+                        }
+                        landmark_mesh.end();
+
+                        if let Some(edges_) = edges {
+                            let edges_mesh = _owner
+                                .get_node("Spatial/Frames/Edges")
+                                .unwrap()
+                                .assume_safe()
+                                .cast::<ImmediateGeometry>()
+                                .unwrap();
+                            edges_mesh.clear();
+                            edges_mesh.begin(Mesh::PRIMITIVE_LINES, Null::null());
+                            edges_mesh.set_color(Colors::EDGE.as_godot());
+                            for e in edges_.iter() {
+                                let k0 = self.values.keyframes.get(&e.id0);
+                                let k1 = self.values.keyframes.get(&e.id1);
+                                if let (Some(k0), Some(k1)) = (k0, k1) {
+                                    edges_mesh.add_vertex(k0[0]);
+                                    edges_mesh.add_vertex(k1[0]);
+                                }
+                            }
+                            edges_mesh.end();
+                        }
+
+                        // TODO convert this to some mesh
+                        if let Some(current_frame) = &self.values.current_frame {
+                            _owner.emit_signal("current_frame", &[current_frame.to_variant()]);
+                        }
+
+                        if let Some(camera_pose) = &self.values.camera_pose {
+                            let marker = _owner
+                                .get_node("Spatial/Frames/CurrentPose")
+                                .unwrap()
+                                .assume_safe()
+                                .cast::<Spatial>()
+                                .unwrap();
+                            marker.set_transform(iso3_to_gd(camera_pose));
+                        }
+
+                        if let Some(ground_truth_pose) = self.values.ground_truth_pose {
+                            let marker = _owner
+                                .get_node("Spatial/Frames/GTPose")
+                                .unwrap()
+                                .assume_safe()
+                                .cast::<Spatial>()
+                                .unwrap();
+
+                            marker.set_transform(ground_truth_pose);
+                        }
+
+                        if let Some(marked_keyframe) = &self.values.marked_keyframe {
+                            if let Some(vertices) = &self.values.keyframes.get(marked_keyframe) {
+                                let marker = _owner
+                                    .get_node("Spatial/Marker")
+                                    .unwrap()
+                                    .assume_safe()
+                                    .cast::<CSGBox>()
+                                    .unwrap();
+                                marker.set_translation(vertices[0]);
+                            }
+                        }
                     }
                 }
             }
@@ -666,45 +778,45 @@ impl Game {
         };
 
         if self.values.follow_target {
-            if let Some(pose) = &self.values.camera_pose {
-                if self.values.last_step_mark.should_move(&pose) {
-                    let speed_go = 0.4;
-                    let speed_turn = 0.6;
-                    let step_time = 0.12;
+            // if let Some(pose) = &self.values.camera_pose {
+            //     if self.values.last_step_mark.should_move(&pose) {
+            //         let speed_go = 0.4;
+            //         let speed_turn = 0.6;
+            //         let step_time = 0.12;
 
-                    let dx = self.values.target.0 - pose.translation[[0, 0]];
-                    let dz = self.values.target.2 - pose.translation[[2, 0]];
-                    let yaw_target = dx.atan2(dz);
-                    let m = na::Matrix3::from_row_slice(&pose.rotation.to_owned().into_raw_vec());
-                    let yaw_bot = na::Rotation3::from_matrix(&m).euler_angles().1;
-                    let yawd = angle_difference(yaw_bot, yaw_target);
-                    let distance = dx.hypot(dz);
-                    godot_print!(
-                        "from {:?} to {:?} is {}mm; yaw_target={} yaw_bot={} yawd={}",
-                        (dx, dz),
-                        self.values.target,
-                        distance,
-                        yaw_target,
-                        yaw_bot,
-                        yawd
-                    );
+            //         let dx = self.values.target.0 - pose.translation[[0, 0]];
+            //         let dz = self.values.target.2 - pose.translation[[2, 0]];
+            //         let yaw_target = dx.atan2(dz);
+            //         let m = na::Matrix3::from_row_slice(&pose.rotation.to_owned().into_raw_vec());
+            //         let yaw_bot = na::Rotation3::from_matrix(&m).euler_angles().1;
+            //         let yawd = angle_difference(yaw_bot, yaw_target);
+            //         let distance = dx.hypot(dz);
+            //         godot_print!(
+            //             "from {:?} to {:?} is {}mm; yaw_target={} yaw_bot={} yawd={}",
+            //             (dx, dz),
+            //             self.values.target,
+            //             distance,
+            //             yaw_target,
+            //             yaw_bot,
+            //             yawd
+            //         );
 
-                    if distance < 0.2 {
-                        go(0., 0., None);
-                    } else if yawd.abs() < 0.3 {
-                        go(speed_go, speed_go, Some(step_time));
-                    } else if yawd > 0. {
-                        go(speed_turn, -speed_turn, Some(step_time));
-                    } else {
-                        go(-speed_turn, speed_turn, Some(step_time));
-                    }
+            //         if distance < 0.2 {
+            //             go(0., 0., None);
+            //         } else if yawd.abs() < 0.3 {
+            //             go(speed_go, speed_go, Some(step_time));
+            //         } else if yawd > 0. {
+            //             go(speed_turn, -speed_turn, Some(step_time));
+            //         } else {
+            //             go(-speed_turn, speed_turn, Some(step_time));
+            //         }
 
-                    self.values.last_step_mark = StepMark {
-                        time: time::SystemTime::now(),
-                        pose: pose.clone(),
-                    };
-                }
-            }
+            //         self.values.last_step_mark = StepMark {
+            //             time: time::SystemTime::now(),
+            //             pose: pose.clone(),
+            //         };
+            //     }
+            // }
         } else {
             if let Some(step) = self.values.step {
                 godot_print!("STEP {:?}", step);
