@@ -18,6 +18,7 @@ message map {
         uint32 id = 1;
         repeated double coords = 2;
         repeated double color = 3;
+        int32 num_observations = 4;
     }
 
     message Mat44 {

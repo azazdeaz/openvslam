@@ -92,7 +92,7 @@ std::string data_serializer::serialize_map_diff(openvslam::tracker_state_t state
     std::set<openvslam::data::landmark*> local_landmarks;
     map_publisher_->get_landmarks(all_landmarks, local_landmarks);
 
-    const auto current_camera_pose = map_publisher_->get_current_cam_pose();
+    const auto current_camera_pose = map_publisher_->get_current_cam_pose_wc();
 
     const double pose_hash = get_mat_hash(current_camera_pose);
     // if (pose_hash == current_pose_hash_) {
@@ -250,6 +250,7 @@ std::string data_serializer::serialize_as_protobuf(const std::vector<openvslam::
         const auto id = landmark->id_;
         const auto pos = landmark->get_pos_in_world();
         const auto zip = get_vec_hash(pos);
+        const auto num_observations = landmark->num_observations();
 
         // point exists on next_point_zip.
         next_point_hash_map[id] = zip;
@@ -273,6 +274,7 @@ std::string data_serializer::serialize_as_protobuf(const std::vector<openvslam::
         for (int i = 0; i < 3; i++) {
             landmark_obj->add_color(rgb[i]);
         }
+        landmark_obj->set_num_observations(num_observations);
     }
     // removed points are remaining in "point_zips".
     for (const auto& itr : *point_hash_map_) {

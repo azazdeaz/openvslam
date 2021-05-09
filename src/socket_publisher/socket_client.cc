@@ -40,11 +40,40 @@ socket_client::socket_client(const std::string& server_uri)
     // get socket
     socket_ = client_.socket();
 
-    ctx_ = zmq::context_t(1);
+    ctx_ = zmq::context_t(2);
     publisher_ = zmq::socket_t(ctx_, zmq::socket_type::pub);
     int confl = 1;
     publisher_.setsockopt(ZMQ_CONFLATE, &confl, sizeof(confl));
     publisher_.bind("tcp://*:5566");
+
+
+    // // subscribe to control messages
+    // std::thread thread([&]() {
+    //     //  Prepare subscriber
+    //     zmq::socket_t subscriber(ctx_, zmq::socket_type::sub);
+    //     subscriber.connect("tcp://192.168.50.234:5561");
+    //     //  Thread3 opens ALL envelopes
+    //     subscriber.set(zmq::sockopt::subscribe, "");
+    //     while (true) {
+    //         // Receive all parts of the message
+    //         // std::vector<zmq::message_t> recv_msgs;
+    //         // zmq::recv_result_t result =
+    //         //     zmq::recv_multipart(subscriber, std::back_inserter(recv_msgs));
+
+    //         zmq::message_t message;
+    //         auto result = subscriber.recv(&message);
+    //         assert(result && "recv failed");
+
+    //         // std::cout << "Got "<< std::endl;
+    //         assert(*result == 2);
+
+    //         auto msg0 = message.to_string();//recv_msgs[0].to_string();
+    //         spdlog::info("got message {}", msg0);
+    //         // if (callback_) {
+    //         //     callback_(msg0);
+    //         // }
+    //     }
+    // });
 
     socket_->on("signal", std::bind(&socket_client::on_receive, this, std::placeholders::_1));
 }

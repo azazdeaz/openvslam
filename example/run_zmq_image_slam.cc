@@ -37,6 +37,7 @@ void mono_tracking(const std::shared_ptr<openvslam::config>& cfg,
                    const std::string& vocab_file_path, const std::string& mask_img_path,
                    const unsigned int frame_skip, const bool no_sleep, const bool auto_term,
                    const bool eval_log, const std::string& map_db_path) {
+    spdlog::set_level(spdlog::level::trace);
     zmq::context_t ctx(1);
 
     // auto thread1 = std::async(std::launch::async, SubscriberThread, &ctx);
