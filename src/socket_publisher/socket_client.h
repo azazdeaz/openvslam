@@ -24,7 +24,7 @@ public:
     socket_client(const std::string& server_uri);
 
     void emit(const std::string tag, const std::string buffer) {
-        socket_->emit(tag, buffer);
+        // socket_->emit(tag, buffer);
         if (tag == "map_publish") {
             publisher_.send(zmq::buffer(buffer), zmq::send_flags::dontwait);
         }

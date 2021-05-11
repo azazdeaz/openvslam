@@ -36,7 +36,7 @@
 void mono_tracking(const std::shared_ptr<openvslam::config>& cfg,
                    const std::string& vocab_file_path, const std::string& mask_img_path,
                    const unsigned int frame_skip, const bool no_sleep, const bool auto_term,
-                   const bool eval_log, const std::string& map_db_path) {
+                   const bool eval_log, const std::string& map_db_path_in, const std::string& map_db_path_out) {
     spdlog::set_level(spdlog::level::trace);
     zmq::context_t ctx(1);
 
@@ -51,10 +51,11 @@ void mono_tracking(const std::shared_ptr<openvslam::config>& cfg,
 
     // build a SLAM system
     openvslam::system SLAM(cfg, vocab_file_path);
+
     // load the prebuilt map
-    if (!map_db_path.empty()) {
+    if (!map_db_path_in.empty()) {
         std::cout << "loading map..." << std::endl;
-        SLAM.load_map_database(map_db_path);
+        SLAM.load_map_database(map_db_path_in);
     }
     // startup the SLAM process
     SLAM.startup();
@@ -74,7 +75,8 @@ void mono_tracking(const std::shared_ptr<openvslam::config>& cfg,
         //  Prepare subscriber
         zmq::socket_t subscriber(ctx, zmq::socket_type::sub);
         subscriber.connect("tcp://192.168.50.234:5560");
-        
+
+        // subscriber.connect("tcp://192.168.50.111:5560");
         //  Thread3 opens ALL envelopes
         subscriber.set(zmq::sockopt::subscribe, "");
         while (true) {
@@ -87,8 +89,7 @@ void mono_tracking(const std::shared_ptr<openvslam::config>& cfg,
             auto result = subscriber.recv(&message);
             assert(result && "recv failed");
 
-            // std::cout << "Got " << *result
-            //         << " messages" << std::endl;
+            std::cout << "Got image "<< std::endl;
             assert(*result == 2);
 
             auto msg0 = message.to_string();//recv_msgs[0].to_string();
@@ -177,9 +178,9 @@ void mono_tracking(const std::shared_ptr<openvslam::config>& cfg,
         }
     }
 
-    if (!map_db_path.empty()) {
+    if (!map_db_path_out.empty()) {
         // output the map database
-        SLAM.save_map_database(map_db_path);
+        SLAM.save_map_database(map_db_path_out);
     }
 
     std::sort(track_times.begin(), track_times.end());
@@ -210,7 +211,8 @@ int main(int argc, char* argv[]) {
     auto auto_term = op.add<popl::Switch>("", "auto-term", "automatically terminate the viewer");
     auto debug_mode = op.add<popl::Switch>("", "debug", "debug mode");
     auto eval_log = op.add<popl::Switch>("", "eval-log", "store trajectory and tracking times for evaluation");
-    auto map_db_path = op.add<popl::Value<std::string>>("p", "map-db", "store a map database at this path after SLAM", "");
+    auto map_db_path_in = op.add<popl::Value<std::string>>("", "map-db-in", "load map database from this path before SLAM", "");
+    auto map_db_path_out = op.add<popl::Value<std::string>>("", "map-db-out", "store a map database at this path after SLAM", "");
     try {
         op.parse(argc, argv);
     }
@@ -260,7 +262,7 @@ int main(int argc, char* argv[]) {
     if (cfg->camera_->setup_type_ == openvslam::camera::setup_type_t::Monocular) {
         mono_tracking(cfg, vocab_file_path->value(), mask_img_path->value(),
                       frame_skip->value(), no_sleep->is_set(), auto_term->is_set(),
-                      eval_log->is_set(), map_db_path->value());
+                      eval_log->is_set(), map_db_path_in->value(), map_db_path_out->value());
     }
     else {
         throw std::runtime_error("Invalid setup type: " + cfg->camera_->get_setup_type_string());

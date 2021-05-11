@@ -3,6 +3,17 @@
 #find cppzmq wrapper, installed by make of cppzmq
 find_package(cppzmq)
 
+# find_package(octomap REQUIRED
+#   HINTS ${CMAKE_SOURCE_DIR}/lib/cmake/octomap
+#    ${CMAKE_SOURCE_DIR}/../octomap/lib/cmake/octomap
+#    /usr/local/include/octomap
+#    /usr/local/lib
+# )
+# MESSAGE(STATUS "Found octomap version: " ${octomap_VERSION})
+# MESSAGE(STATUS "octomap libraries: ${OCTOMAP_LIBRARIES}")
+
+INCLUDE_DIRECTORIES(BEFORE SYSTEM ${OCTOMAP_INCLUDE_DIRS})
+
 # popl
 set(popl_INCLUDE_DIR ${PROJECT_SOURCE_DIR}/3rd/popl/include)
 
@@ -111,6 +122,8 @@ foreach(EXECUTABLE_TARGET IN LISTS EXECUTABLE_TARGETS)
                           PRIVATE
                           ${PROJECT_NAME}
                           cppzmq
+                          octomap
+                          octomath
                           opencv_imgcodecs
                           opencv_videoio)
 

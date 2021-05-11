@@ -58,7 +58,9 @@ void mono_tracking(const std::shared_ptr<openvslam::config>& cfg,
     // run the SLAM in another thread
     std::thread thread([&]() {
         while (is_not_end) {
-            is_not_end = video.read(frame);
+            if (num_frame < 32) {
+                is_not_end = video.read(frame);
+            }
 
             const auto tp_1 = std::chrono::steady_clock::now();
 
@@ -89,6 +91,7 @@ void mono_tracking(const std::shared_ptr<openvslam::config>& cfg,
             if (SLAM.terminate_is_requested()) {
                 break;
             }
+
         }
 
         // wait until the loop BA is finished
