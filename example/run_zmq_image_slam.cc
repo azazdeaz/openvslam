@@ -38,7 +38,7 @@ void mono_tracking(const std::shared_ptr<openvslam::config>& cfg,
                    const unsigned int frame_skip, const bool no_sleep, const bool auto_term,
                    const bool eval_log, const std::string& map_db_path_in, const std::string& map_db_path_out) {
     spdlog::set_level(spdlog::level::trace);
-    zmq::context_t ctx(1);
+    zmq::context_t ctx(2);
 
     // auto thread1 = std::async(std::launch::async, SubscriberThread, &ctx);
     // thread1.wait();
@@ -152,6 +152,54 @@ void mono_tracking(const std::shared_ptr<openvslam::config>& cfg,
 #endif
     });
 
+    std::thread thread2([&]() {
+        std::cout << "subscriber thread..." << std::endl;
+        //  Prepare subscriber
+        zmq::socket_t subscriber(ctx, zmq::socket_type::sub);
+        subscriber.connect("tcp://192.168.50.111:5561");
+
+        // subscriber.connect("tcp://192.168.50.111:5560");
+        //  Thread3 opens ALL envelopes
+        subscriber.set(zmq::sockopt::subscribe, "");
+        while (true) {
+            // Receive all parts of the message
+            // std::vector<zmq::message_t> recv_msgs;
+            // zmq::recv_result_t result =
+            //     zmq::recv_multipart(subscriber, std::back_inserter(recv_msgs));
+            zmq::message_t message;
+            auto result = subscriber.recv(&message);
+            assert(result && "recv failed");
+            assert(*result == 2);
+
+            auto msg = message.to_string();//recv_msgs[0].to_string();
+            std::vector<char> msg_str(msg.begin(), msg.end());
+
+            std::cout << "Got command "<< msg<< std::endl;
+            
+            if (msg == "disable_mapping_mode") {
+                SLAM.disable_mapping_module();
+            }
+            else if (msg == "enable_mapping_mode") {
+                SLAM.enable_mapping_module();
+            }
+            else if (msg == "reset") {
+                SLAM.request_reset();
+            }
+            else if (msg == "terminate") {
+                SLAM.request_terminate();
+                #ifdef USE_SOCKET_PUBLISHER
+                    publisher.request_terminate();
+                #endif
+                break;
+            }
+
+            // check if the termination of SLAM system is requested or not
+            if (SLAM.terminate_is_requested()) {
+                break;
+            }
+        }
+    });
+
     // run the viewer in the current thread
 #ifdef USE_PANGOLIN_VIEWER
     viewer.run();
@@ -159,8 +207,8 @@ void mono_tracking(const std::shared_ptr<openvslam::config>& cfg,
     publisher.run();
 #endif
 
-    thread.join();
-
+    thread2.join();
+    
     // shutdown the SLAM process
     SLAM.shutdown();
 

@@ -91,9 +91,29 @@ Mat44_t tracking_module::track_monocular_image(const cv::Mat& img, const double 
     }
 
     track();
+    // const auto start_ocmap = std::chrono::system_clock::now();
+
+    // int lm_count = 0;
+    // octomap::Pointcloud points;
+    // for (const auto landmark: curr_frm_.landmarks_) {
+    //     if (!landmark || landmark->will_be_erased()) {
+    //         continue;
+    //     }
+    //     ++lm_count;
+    //     auto pos = landmark->get_pos_in_world();
+    //     points.push_back(pos[0], pos[1], pos[2]);
+    // }
+
+    // auto cam_xyz = curr_frm_.get_cam_center();
+    // auto cam_pos = new octomap::point3d(cam_xyz[0], cam_xyz[1], cam_xyz[2]);
+    // octree.insertPointCloud(points, *cam_pos, 3., false, false);
+
+    // octree.write("/catkin_ws/src/ocmap.ot");
 
     const auto end = std::chrono::system_clock::now();
     elapsed_ms_ = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+
+    // std::cout << std::chrono::duration_cast<std::chrono::milliseconds>(end - start_ocmap).count()  << "ms mapping " << lm_count <<std::endl;
 
     return curr_frm_.cam_pose_cw_;
 }
