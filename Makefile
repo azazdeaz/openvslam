@@ -176,6 +176,11 @@ run:
 	make build-x86_64-unknown-linux-gnu-debug
 	godot --path godot/ -d
 
+
+run-release:
+	make build-x86_64-unknown-linux-gnu-release
+	godot --path godot/ -d
+
 shell:
 	nix-shell --pure
 

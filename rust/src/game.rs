@@ -11,6 +11,7 @@ pub struct Game {
     name: String,
     values: Values,
     pub_vel: zmq::Socket,
+    pub_slam_cmd: zmq::Socket,
     rx: Option<Receiver<Incoming>>,
     sub_tf_gt: Option<rosrust::Subscriber>,
 }
@@ -29,23 +30,24 @@ use std::collections::HashMap;
 
 const URL_IMAGE_PUB: &str = "tcp://192.168.50.234:5560";
 
-#[derive(PartialEq, Clone)]
-struct Pose {
-    rotation: Array2<f64>,
-    translation: Array2<f64>,
-}
+// #[derive(PartialEq, Clone)]
+// struct Pose {
+//     rotation: Array2<f64>,
+//     translation: Array2<f64>,
+// }
 struct StepMark {
     time: time::SystemTime,
-    pose: Pose,
+    pose: na::Isometry3<f64>,
 }
 impl StepMark {
-    fn should_move(&self, pose: &Pose) -> bool {
+    fn should_move(&self, pose: &na::Isometry3<f64>) -> bool {
         pose != &self.pose || self.time.elapsed().unwrap().as_secs() > 1
     }
 }
 struct Values {
-    max_landmark_opservations: u32,
-    landmarks: HashMap<u32, (Vector3, Color)>,
+    max_lm_obs: u32,
+    min_lm_obs: u32,
+    landmarks: HashMap<u32, (Vector3, Color, u32)>,
     keyframes: HashMap<u32, Vec<Vector3>>,
     current_frame: Option<Vec<Vector3>>,
     last_step_mark: StepMark,
@@ -58,6 +60,7 @@ struct Values {
     camera_pose: Option<na::Isometry3<f64>>,
     ground_truth_pose: Option<Transform>,
     first_ground_truth_pose: Option<na::Isometry3<f64>>,
+    scale_factor: f64,
 }
 
 use std::sync::mpsc;
@@ -313,20 +316,23 @@ impl Game {
         publisher
             .bind("tcp://*:5567")
             .expect("failed binding publisher");
+        // let context = zmq::Context::new();
+        let pub_slam_cmd = context.socket(zmq::PUB).unwrap();
+        pub_slam_cmd
+            .bind("tcp://*:5561")
+            .expect("failed binding publisher");
 
         Game {
             name: "".to_string(),
             values: Values {
-                max_landmark_opservations: 1,
+                max_lm_obs: 1,
+                min_lm_obs: 0,
                 landmarks: HashMap::new(),
                 keyframes: HashMap::new(),
                 current_frame: Some(vec![Vector3::new(0., 0., 0.)]),
                 last_step_mark: StepMark {
                     time: time::SystemTime::now(),
-                    pose: Pose {
-                        rotation: Array2::eye(3),
-                        translation: Array2::zeros((3, 1)),
-                    },
+                    pose: na::Isometry3::<f64>::identity(),
                 },
                 target: (0., 0., 0.),
                 follow_target: false,
@@ -337,8 +343,10 @@ impl Game {
                 camera_pose: None,
                 ground_truth_pose: None,
                 first_ground_truth_pose: None,
+                scale_factor: 1.0,
             },
             pub_vel: publisher,
+            pub_slam_cmd,
             rx: None,
             sub_tf_gt: None,
         }
@@ -366,6 +374,22 @@ impl Game {
     #[export]
     fn set_step(&mut self, _owner: TRef<Node>, left: f64, right: f64, time: f64) {
         self.values.step = Some((left, right, time));
+    }
+
+    #[export]
+    fn set_scale_factor(&mut self, _owner: TRef<Node>, scale: f64) {
+        self.values.scale_factor = scale;
+    }
+
+    #[export]
+    fn set_min_lm_obs(&mut self, _owner: TRef<Node>, min_lm_obs: f64) {
+        self.values.min_lm_obs = min_lm_obs as u32;
+    }
+
+    #[export]
+    fn request_slam_terminate(&mut self, _owner: TRef<Node>) {
+        godot_print!("request terminate");
+        self.pub_slam_cmd.send(&"terminate", 0).expect("failed to send cmd");
     }
 
     // In order to make a method known to Godot, the #[export] attribute has to be used.
@@ -415,44 +439,76 @@ impl Game {
             }
         });
 
-        rosrust::init("listener");
-
-        let thread_tx2 = tx.clone();
-        // Create subscriber
-        // The subscriber is stopped when the returned object is destroyed
-        self.sub_tf_gt = Some(
-            rosrust::subscribe(
-                "/X1/pose_static",
-                100,
-                move |v: msg::tf2_msgs::TFMessage| {
-                    // Callback for handling received messages
-                    // godot_print!("Received: {:?}", v);
-                    for t in v.transforms {
-                        godot_print!("{} -> {}", t.header.frame_id, t.child_frame_id);
-                        if t.child_frame_id == "X1" {
-                            let origin = na::Translation3::new(
-                                t.transform.translation.x,
-                                t.transform.translation.y,
-                                t.transform.translation.z,
-                            );
-                            let r = na::UnitQuaternion::from_quaternion(na::Quaternion {
-                                coords: na::Vector4::new(
-                                    t.transform.rotation.x,
-                                    t.transform.rotation.y,
-                                    t.transform.rotation.z,
-                                    t.transform.rotation.w,
-                                ),
-                            });
-                            let iso = na::Isometry3::from_parts(origin, r);
-
-                            thread_tx2.send(Incoming::GroundTruthPose(iso)).unwrap();
-                        }
-                    }
-                },
+        _owner
+            .find_node("ScaleSlider", true, true)
+            .unwrap()
+            .assume_safe()
+            .cast::<HSlider>()
+            .unwrap()
+            .connect(
+                "value_changed",
+                _owner,
+                "set_scale_factor",
+                VariantArray::new_shared(),
+                0,
             )
-            .unwrap(),
-        );
-        godot_print!("_subscriber_raii ");
+            .unwrap();
+
+        _owner
+            .find_node("MinLandmarks", true, true)
+            .unwrap()
+            .assume_safe()
+            .cast::<HSlider>()
+            .unwrap()
+            .connect(
+                "value_changed",
+                _owner,
+                "set_min_lm_obs",
+                VariantArray::new_shared(),
+                0,
+            )
+            .unwrap();
+        
+
+        
+
+        // rosrust::init("listener");
+
+        // let thread_tx2 = tx.clone();
+        // // Create subscriber
+        // // The subscriber is stopped when the returned object is destroyed
+        // self.sub_tf_gt = Some(
+        //     rosrust::subscribe(
+        //         "/X1/pose_static",
+        //         100,
+        //         move |v: msg::tf2_msgs::TFMessage| {
+        //             // Callback for handling received messages
+        //             // godot_print!("Received: {:?}", v);
+        //             for t in v.transforms {
+        //                 godot_print!("{} -> {}", t.header.frame_id, t.child_frame_id);
+        //                 if t.child_frame_id == "X1" {
+        //                     let origin = na::Translation3::new(
+        //                         t.transform.translation.x,
+        //                         t.transform.translation.y,
+        //                         t.transform.translation.z,
+        //                     );
+        //                     let r = na::UnitQuaternion::from_quaternion(na::Quaternion {
+        //                         coords: na::Vector4::new(
+        //                             t.transform.rotation.x,
+        //                             t.transform.rotation.y,
+        //                             t.transform.rotation.z,
+        //                             t.transform.rotation.w,
+        //                         ),
+        //                     });
+        //                     let iso = na::Isometry3::from_parts(origin, r);
+
+        //                     thread_tx2.send(Incoming::GroundTruthPose(iso)).unwrap();
+        //                 }
+        //             }
+        //         },
+        //     )
+        //     .unwrap(),
+        // );
 
         // let context = zmq::Context::new();
         // let (tx, rx): (Sender<Vec<u8>>, Receiver<Vec<u8>>) = mpsc::channel();
@@ -569,14 +625,14 @@ impl Game {
                         for landmark in msg.landmarks.iter() {
                             if landmark.coords.len() != 0 {
                                 if landmark.num_observations
-                                    > self.values.max_landmark_opservations as i32
+                                    > self.values.max_lm_obs as i32
                                 {
                                     godot_print!("lm max num ob {}", landmark.num_observations);
-                                    self.values.max_landmark_opservations =
+                                    self.values.max_lm_obs =
                                         landmark.num_observations as u32;
                                 }
                                 let val =
-                                    0.5 + f64::min(0.5, landmark.num_observations as f64 / 24.0); //self.values.max_landmark_opservations as f64;
+                                    0.5 + f64::min(0.5, landmark.num_observations as f64 / 24.0); //self.values.max_lm_obs as f64;
                                 let color = colormap.vals
                                     [(val * (colormap.vals.len() - 1) as f64) as usize];
                                 let color =
@@ -590,6 +646,7 @@ impl Game {
                                             landmark.coords[2] as f32,
                                         ),
                                         color,
+                                        landmark.num_observations as u32,
                                     ),
                                 );
                             } else {
@@ -685,9 +742,11 @@ impl Game {
                         landmark_mesh.clear();
                         landmark_mesh.begin(Mesh::PRIMITIVE_POINTS, Null::null());
                         // landmark_mesh.set_color(Colors::LANDMARK1.as_godot());
-                        for (v, c) in self.values.landmarks.values() {
-                            landmark_mesh.set_color(*c);
-                            landmark_mesh.add_vertex(*v);
+                        for (v, c, num_obs) in self.values.landmarks.values() {
+                            if num_obs >= &self.values.min_lm_obs {
+                                landmark_mesh.set_color(*c);
+                                landmark_mesh.add_vertex(*v);
+                            }
                         }
                         landmark_mesh.end();
 
@@ -718,13 +777,23 @@ impl Game {
                         }
 
                         if let Some(camera_pose) = &self.values.camera_pose {
+                            let transform = iso3_to_gd(camera_pose);
+                            
                             let marker = _owner
                                 .get_node("Spatial/Frames/CurrentPose")
                                 .unwrap()
                                 .assume_safe()
                                 .cast::<Spatial>()
                                 .unwrap();
-                            marker.set_transform(iso3_to_gd(camera_pose));
+                            marker.set_transform(transform);
+
+                            let marker = _owner
+                                .get_node("Spatial/Frames/CamTarget")
+                                .unwrap()
+                                .assume_safe()
+                                .cast::<Spatial>()
+                                .unwrap();
+                            marker.set_transform(transform);
                         }
 
                         if let Some(ground_truth_pose) = self.values.ground_truth_pose {
@@ -774,53 +843,53 @@ impl Game {
             self.pub_vel.send(&cmd, 0).expect("failed to send cmd");
 
             get_label("GUI/Speed").set_text(format!("{}", cmd));
+            godot_print!("GO {}", cmd);
             // get_label("GUI/SpeedRight").set_text(format!(">{}", right));
         };
 
         if self.values.follow_target {
-            // if let Some(pose) = &self.values.camera_pose {
-            //     if self.values.last_step_mark.should_move(&pose) {
-            //         let speed_go = 0.4;
-            //         let speed_turn = 0.6;
-            //         let step_time = 0.12;
+            if let Some(pose) = &self.values.camera_pose {
+                if self.values.last_step_mark.should_move(&pose) {
+                    let speed_go = 0.3;
+                    let speed_turn = 0.3;
+                    let step_time = 0;
 
-            //         let dx = self.values.target.0 - pose.translation[[0, 0]];
-            //         let dz = self.values.target.2 - pose.translation[[2, 0]];
-            //         let yaw_target = dx.atan2(dz);
-            //         let m = na::Matrix3::from_row_slice(&pose.rotation.to_owned().into_raw_vec());
-            //         let yaw_bot = na::Rotation3::from_matrix(&m).euler_angles().1;
-            //         let yawd = angle_difference(yaw_bot, yaw_target);
-            //         let distance = dx.hypot(dz);
-            //         godot_print!(
-            //             "from {:?} to {:?} is {}mm; yaw_target={} yaw_bot={} yawd={}",
-            //             (dx, dz),
-            //             self.values.target,
-            //             distance,
-            //             yaw_target,
-            //             yaw_bot,
-            //             yawd
-            //         );
+                    let dx = self.values.target.0 - pose.translation.vector.x;
+                    let dz = self.values.target.2 - pose.translation.vector.z;
+                    let yaw_target = dx.atan2(dz);
+                    let yaw_bot = pose.rotation.euler_angles().1;
+                    let yawd = angle_difference(yaw_bot, yaw_target);
+                    let distance = dx.hypot(dz);
+                    godot_print!(
+                        "from {:?} to {:?} is {}mm; yaw_target={} yaw_bot={} yawd={}",
+                        (dx, dz),
+                        self.values.target,
+                        distance,
+                        yaw_target,
+                        yaw_bot,
+                        yawd
+                    );
 
-            //         if distance < 0.2 {
-            //             go(0., 0., None);
-            //         } else if yawd.abs() < 0.3 {
-            //             go(speed_go, speed_go, Some(step_time));
-            //         } else if yawd > 0. {
-            //             go(speed_turn, -speed_turn, Some(step_time));
-            //         } else {
-            //             go(-speed_turn, speed_turn, Some(step_time));
-            //         }
+                    if distance < 0.2 {
+                        go(0., 0., None);
+                    } else if yawd.abs() < 0.3 {
+                        go(speed_go, speed_go, Some(step_time));
+                    } else if yawd > 0. {
+                        go(speed_turn, -speed_turn, Some(step_time));
+                    } else {
+                        go(-speed_turn, speed_turn, Some(step_time));
+                    }
 
-            //         self.values.last_step_mark = StepMark {
-            //             time: time::SystemTime::now(),
-            //             pose: pose.clone(),
-            //         };
-            //     }
-            // }
+                    self.values.last_step_mark = StepMark {
+                        time: time::SystemTime::now(),
+                        pose: pose.clone(),
+                    };
+                }
+            }
         } else {
             if let Some(step) = self.values.step {
                 godot_print!("STEP {:?}", step);
-                go(step.0, step.1, Some(step.2));
+                go(step.0, step.1, Some(step.2 as i32));
                 self.values.step = None;
                 self.values.speed = None;
             } else if let Some(speed) = self.values.speed {

@@ -11,7 +11,7 @@
 [ext_resource path="res://scenes/Keyframes.gd" type="Script" id=9]
 [ext_resource path="res://scenes/Edges.gd" type="Script" id=10]
 [ext_resource path="res://scenes/Landmarks.gd" type="Script" id=11]
-[ext_resource path="res://scenes/CamTarget.gd" type="Script" id=12]
+[ext_resource path="res://scenes/SendTerminate.gd" type="Script" id=12]
 [ext_resource path="res://scenes/ExpandButton.gd" type="Script" id=13]
 [ext_resource path="res://scenes/Fps.gd" type="Script" id=14]
 [ext_resource path="res://scenes/PoseGTMat.tres" type="Material" id=15]
@@ -110,6 +110,36 @@ margin_bottom = 241.815
 text = "FPS"
 script = ExtResource( 14 )
 
+[node name="ScaleSlider" type="HSlider" parent="GUI"]
+margin_left = 1.87869
+margin_top = 135.983
+margin_right = 190.879
+margin_bottom = 155.983
+max_value = 10.0
+step = 0.1
+value = 1.0
+__meta__ = {
+"_edit_use_anchors_": false
+}
+
+[node name="MinLandmarks" type="HSlider" parent="GUI"]
+margin_left = 1.87869
+margin_top = 167.096
+margin_right = 190.879
+margin_bottom = 187.096
+value = 1.0
+__meta__ = {
+"_edit_use_anchors_": false
+}
+
+[node name="TerminateBtn" type="Button" parent="GUI"]
+margin_left = 273.0
+margin_top = 45.0
+margin_right = 357.0
+margin_bottom = 65.0
+text = "TERMINATE"
+script = ExtResource( 12 )
+
 [node name="Spatial" type="Spatial" parent="."]
 script = ExtResource( 4 )
 
@@ -126,17 +156,17 @@ script = ExtResource( 3 )
 transform = Transform( 300, 0, 0, 0, 1, 0, 0, 0, 300, 0, 0, 0 )
 shape = SubResource( 3 )
 
-[node name="CamTarget" type="Spatial" parent="Spatial"]
-script = ExtResource( 12 )
+[node name="Frames" type="Spatial" parent="Spatial"]
+transform = Transform( -1, -3.25841e-07, 0, 3.25841e-07, -1, 0, 0, 0, 1, 0, 0, 0 )
 
-[node name="TrackballCamera" type="Camera" parent="Spatial/CamTarget"]
+[node name="CamTarget" type="Spatial" parent="Spatial/Frames"]
+transform = Transform( -1, 3.25841e-07, 0, -3.25841e-07, -1, 0, 0, 0, 1, 0, 0, 0 )
+
+[node name="TrackballCamera" type="Camera" parent="Spatial/Frames/CamTarget"]
 transform = Transform( 1, 0, 0, 0, 0.900448, 0.434964, 0, -0.434964, 0.900448, 0, 7.09434, 13.972 )
 script = ExtResource( 7 )
 stabilize_horizon = true
 joystick_enabled = false
-
-[node name="Frames" type="Spatial" parent="Spatial"]
-transform = Transform( -1, -3.25841e-07, 0, 3.25841e-07, -1, 0, 0, 0, 1, 0, 0, 0 )
 
 [node name="Landmarks" type="ImmediateGeometry" parent="Spatial/Frames"]
 layers = 2147483649
@@ -154,7 +184,6 @@ script = ExtResource( 6 )
 
 [node name="Goal" type="CSGSphere" parent="Spatial/Frames"]
 transform = Transform( -1, -3.25841e-07, 0, 3.25841e-07, -1, 0, 0, 0, 1, 0, 0, 0 )
-visible = false
 radius = 0.178096
 material = SubResource( 5 )
 
@@ -165,6 +194,7 @@ radius = 0.1
 [node name="CurrentPose" parent="Spatial/Frames" instance=ExtResource( 16 )]
 
 [node name="RosFrame" type="Spatial" parent="Spatial"]
+visible = false
 
 [node name="GTPose" type="Spatial" parent="Spatial/RosFrame"]
 
@@ -183,8 +213,8 @@ material_override = ExtResource( 15 )
 width = 0.5
 height = 0.5
 depth = 0.5
-[connection signal="current_frame" from="." to="Spatial/CamTarget" method="_on_Game_current_frame"]
 [connection signal="message" from="." to="GUI/RichTextLabel" method="_on_Game_message"]
 [connection signal="pressed" from="GUI/Button" to="GUI/Button" method="_on_Button_pressed"]
+[connection signal="pressed" from="GUI/TerminateBtn" to="GUI/TerminateBtn" method="_on_TerminateBtn_pressed"]
 
 [editable path="Spatial/RosFrame/GTPose/GTPose"]
