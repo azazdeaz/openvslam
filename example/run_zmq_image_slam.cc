@@ -58,7 +58,8 @@ void mono_tracking(const std::shared_ptr<openvslam::config>& cfg,
         SLAM.load_map_database(map_db_path_in);
     }
     // startup the SLAM process
-    SLAM.startup();
+    SLAM.startup(map_db_path_in.empty());
+    SLAM.enable_mapping_module();
 
 #ifdef USE_PANGOLIN_VIEWER
     pangolin_viewer::viewer viewer(cfg, &SLAM, SLAM.get_frame_publisher(), SLAM.get_map_publisher());
@@ -89,7 +90,7 @@ void mono_tracking(const std::shared_ptr<openvslam::config>& cfg,
             auto result = subscriber.recv(&message);
             assert(result && "recv failed");
 
-            std::cout << "Got image "<< std::endl;
+            // std::cout << "Got image "<< std::endl;
             assert(*result == 2);
 
             auto msg0 = message.to_string();//recv_msgs[0].to_string();
