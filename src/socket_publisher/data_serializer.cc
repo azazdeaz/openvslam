@@ -124,6 +124,8 @@ std::string data_serializer::serialize_as_protobuf(const std::vector<openvslam::
     message->set_tag("0");
     message->set_txt("only map data");
 
+    bool only_send_changes = false;
+
     std::string tracking_state;
     switch(state) {
         case openvslam::tracker_state_t::NotInitialized:
@@ -166,7 +168,9 @@ std::string data_serializer::serialize_as_protobuf(const std::vector<openvslam::
         if (keyframe_hash_map_->count(id) != 0) {
             if (keyframe_hash_map_->at(id) == pose_hash) {
                 keyframe_hash_map_->erase(id);
-                continue;
+                if (only_send_changes) {
+                    continue;
+                }
             }
             keyframe_hash_map_->erase(id);
         }
@@ -259,7 +263,9 @@ std::string data_serializer::serialize_as_protobuf(const std::vector<openvslam::
         if (point_hash_map_->count(id) != 0) {
             if (point_hash_map_->at(id) == zip) {
                 point_hash_map_->erase(id);
-                continue;
+                if (only_send_changes) {
+                    continue;
+                }
             }
             point_hash_map_->erase(id);
         }
