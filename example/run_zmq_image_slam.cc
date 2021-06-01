@@ -154,26 +154,22 @@ void mono_tracking(const std::shared_ptr<openvslam::config>& cfg,
     });
 
     std::thread thread2([&]() {
-        std::cout << "subscriber thread..." << std::endl;
+        std::cout << "responder thread..." << std::endl;
         //  Prepare subscriber
-        zmq::socket_t subscriber(ctx, zmq::socket_type::sub);
-        subscriber.connect("tcp://192.168.50.111:5561");
+        zmq::socket_t responder(ctx, zmq::socket_type::rep);
+	    responder.bind("tcp://0.0.0.0:5561");
 
-        // subscriber.connect("tcp://192.168.50.111:5560");
-        //  Thread3 opens ALL envelopes
-        subscriber.set(zmq::sockopt::subscribe, "");
         while (true) {
             // Receive all parts of the message
             // std::vector<zmq::message_t> recv_msgs;
             // zmq::recv_result_t result =
             //     zmq::recv_multipart(subscriber, std::back_inserter(recv_msgs));
             zmq::message_t message;
-            auto result = subscriber.recv(&message);
+            auto result = responder.recv(&message);
             assert(result && "recv failed");
             assert(*result == 2);
 
             auto msg = message.to_string();//recv_msgs[0].to_string();
-            std::vector<char> msg_str(msg.begin(), msg.end());
 
             std::cout << "Got command "<< msg<< std::endl;
             
@@ -191,8 +187,11 @@ void mono_tracking(const std::shared_ptr<openvslam::config>& cfg,
                 #ifdef USE_SOCKET_PUBLISHER
                     publisher.request_terminate();
                 #endif
+
                 break;
             }
+
+            responder.send(zmq::str_buffer(""));
 
             // check if the termination of SLAM system is requested or not
             if (SLAM.terminate_is_requested()) {
