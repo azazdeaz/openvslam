@@ -14,7 +14,7 @@ build-release:
 	# make build-i686-linux-android-release
 	# make build-x86_64-linux-android-release
 	# make build-i686-unknown-linux-gnu-release
-	# make build-x86_64-unknown-linux-gnu-release
+	make build-x86_64-unknown-linux-gnu-release
 	# make build-x86_64-apple-darwin-release
 	# make build-aarch64-apple-ios-release
 

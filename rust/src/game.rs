@@ -10,10 +10,11 @@ use gdnative::prelude::*;
 pub struct Game {
     name: String,
     values: Values,
-    pub_vel: zmq::Socket,
-    pub_slam_cmd: zmq::Socket,
+    // pub_vel: zmq::Socket,
+    req_slam: zmq::Socket,
     rx: Option<Receiver<Incoming>>,
     sub_tf_gt: Option<rosrust::Subscriber>,
+    navigator: navigator::Navigator,
 }
 
 enum Incoming {
@@ -74,7 +75,7 @@ use std::{
 use url::Url;
 use zmq;
 
-use crate::msg;
+use crate::navigator;
 
 extern crate nalgebra as na;
 
@@ -196,6 +197,11 @@ fn mat44_to_isometry3(pose: &items::v_slam_map::Mat44) -> na::Isometry3<f64> {
     );
     let rotation = na::Rotation3::from_matrix(&rotation);
     let rotation = UnitQuaternion::from_rotation_matrix(&rotation);
+    // let rotation = UnitQuaternion::from_basis_unchecked(&[
+    //     na::Vector3::new(d[0], d[1], d[2]),
+    //     na::Vector3::new(d[4], d[5], d[6]),
+    //     na::Vector3::new(d[8], d[9], d[10]),
+    // ]);
     na::Isometry3::from_parts(translation, rotation)
 }
 
@@ -312,15 +318,15 @@ impl Game {
         godot_print!("Game is created!");
 
         let context = zmq::Context::new();
-        let publisher = context.socket(zmq::PUB).unwrap();
-        publisher
-            .bind("tcp://*:5567")
-            .expect("failed binding publisher");
+        // let publisher = context.socket(zmq::PUB).unwrap();
+        // publisher
+        //     .bind("tcp://*:5567")
+        //     .expect("failed binding publisher");
         // let context = zmq::Context::new();
-        let pub_slam_cmd = context.socket(zmq::PUB).unwrap();
-        pub_slam_cmd
-            .bind("tcp://*:5561")
-            .expect("failed binding publisher");
+        let req_slam = context.socket(zmq::REQ).unwrap();
+        req_slam
+            .connect("tcp://localhost:5561")
+            .expect("failed connecting requester");
 
         Game {
             name: "".to_string(),
@@ -345,10 +351,11 @@ impl Game {
                 first_ground_truth_pose: None,
                 scale_factor: 1.0,
             },
-            pub_vel: publisher,
-            pub_slam_cmd,
+            // pub_vel: publisher,
+            req_slam,
             rx: None,
             sub_tf_gt: None,
+            navigator: navigator::Navigator::new(),
         }
     }
 
@@ -356,18 +363,22 @@ impl Game {
     fn set_target(&mut self, _owner: TRef<Node>, x: f64, y: f64, z: f64) {
         self.values.speed = None;
         self.values.target = (x, y, z);
+        let _ = self.navigator.send_target_pose.try_send(na::Isometry3::<f64>::from_parts(
+            na::Translation3::new(x, y, z), na::UnitQuaternion::identity()));
     }
 
     #[export]
     fn set_follow_target(&mut self, _owner: TRef<Node>, on: bool) {
         godot_print!("follow_target {}", on);
         self.values.follow_target = on;
+        self.navigator.send_self_drive_enabled.send(on);
     }
 
     #[export]
     fn set_speed(&mut self, _owner: TRef<Node>, left: f64, right: f64) {
         let left = (left * 100.).floor() / 100.;
         let right = (right * 100.).floor() / 100.;
+        self.navigator.send_teleop_speed.send((left, right));
         self.values.speed = Some((left, right));
     }
 
@@ -389,7 +400,12 @@ impl Game {
     #[export]
     fn request_slam_terminate(&mut self, _owner: TRef<Node>) {
         godot_print!("request terminate");
-        self.pub_slam_cmd.send(&"terminate", 0).expect("failed to send cmd");
+        self.req_slam.send(&"terminate", 0).expect("failed to send cmd");
+        let response = self.req_slam.recv_msg(0).unwrap();
+        println!(
+            "Received reply {}",
+            response.as_str().unwrap()
+        );
     }
 
     // In order to make a method known to Godot, the #[export] attribute has to be used.
@@ -691,7 +707,9 @@ impl Game {
                             let (vertices, rotation, translation) =
                                 mat44_to_vertices(&current_frame);
                             self.values.current_frame = Some(vertices);
-                            self.values.camera_pose = Some(mat44_to_isometry3(&current_frame));
+                            let cam_pose = mat44_to_isometry3(&current_frame);
+                            self.values.camera_pose = Some(cam_pose);
+                            let _ = self.navigator.send_cam_pose.send(cam_pose);
                         }
 
                         edges = Some(msg.edges);
@@ -772,13 +790,12 @@ impl Game {
                         }
 
                         // TODO convert this to some mesh
-                        if let Some(current_frame) = &self.values.current_frame {
-                            _owner.emit_signal("current_frame", &[current_frame.to_variant()]);
-                        }
+                        // if let Some(current_frame) = &self.values.current_frame {
+                        //     _owner.emit_signal("current_frame", &[current_frame.to_variant()]);
+                        // }
 
                         if let Some(camera_pose) = &self.values.camera_pose {
                             let transform = iso3_to_gd(camera_pose);
-                            
                             let marker = _owner
                                 .get_node("Spatial/Frames/CurrentPose")
                                 .unwrap()
@@ -823,8 +840,8 @@ impl Game {
             }
         }
 
-        let speed = 0.3;
-        let turn_speed = 0.5;
+        // let speed = 0.3;
+        // let turn_speed = 0.5;
 
         let get_label = |path| {
             _owner
@@ -835,67 +852,67 @@ impl Game {
                 .unwrap()
         };
 
-        let go = |left, right, time| {
-            let mut cmd = format!("{},{}", left, right);
-            if let Some(time) = time {
-                cmd = format!("{},{}", cmd, time);
-            }
-            self.pub_vel.send(&cmd, 0).expect("failed to send cmd");
+        // let go = |left, right, time| {
+        //     let mut cmd = format!("{},{}", left, right);
+        //     if let Some(time) = time {
+        //         cmd = format!("{},{}", cmd, time);
+        //     }
+        //     self.pub_vel.send(&cmd, 0).expect("failed to send cmd");
 
-            get_label("GUI/Speed").set_text(format!("{}", cmd));
-            godot_print!("GO {}", cmd);
-            // get_label("GUI/SpeedRight").set_text(format!(">{}", right));
-        };
+        //     get_label("GUI/Speed").set_text(format!("{}", cmd));
+        //     godot_print!("GO {}", cmd);
+        //     // get_label("GUI/SpeedRight").set_text(format!(">{}", right));
+        // };
 
-        if self.values.follow_target {
-            if let Some(pose) = &self.values.camera_pose {
-                if self.values.last_step_mark.should_move(&pose) {
-                    let speed_go = 0.3;
-                    let speed_turn = 0.3;
-                    let step_time = 0;
+        // if self.values.follow_target {
+        //     if let Some(pose) = &self.values.camera_pose {
+        //         if self.values.last_step_mark.should_move(&pose) {
+        //             let speed_go = 0.3;
+        //             let speed_turn = 0.3;
+        //             let step_time = 0;
 
-                    let dx = self.values.target.0 - pose.translation.vector.x;
-                    let dz = self.values.target.2 - pose.translation.vector.z;
-                    let yaw_target = dx.atan2(dz);
-                    let yaw_bot = pose.rotation.euler_angles().1;
-                    let yawd = angle_difference(yaw_bot, yaw_target);
-                    let distance = dx.hypot(dz);
-                    godot_print!(
-                        "from {:?} to {:?} is {}mm; yaw_target={} yaw_bot={} yawd={}",
-                        (dx, dz),
-                        self.values.target,
-                        distance,
-                        yaw_target,
-                        yaw_bot,
-                        yawd
-                    );
+        //             let dx = self.values.target.0 - pose.translation.vector.x;
+        //             let dz = self.values.target.2 - pose.translation.vector.z;
+        //             let yaw_target = dx.atan2(dz);
+        //             let yaw_bot = pose.rotation.euler_angles().1;
+        //             let yawd = angle_difference(yaw_bot, yaw_target);
+        //             let distance = dx.hypot(dz);
+        //             godot_print!(
+        //                 "from {:?} to {:?} is {}mm; yaw_target={} yaw_bot={} yawd={}",
+        //                 (dx, dz),
+        //                 self.values.target,
+        //                 distance,
+        //                 yaw_target,
+        //                 yaw_bot,
+        //                 yawd
+        //             );
 
-                    if distance < 0.2 {
-                        go(0., 0., None);
-                    } else if yawd.abs() < 0.3 {
-                        go(speed_go, speed_go, Some(step_time));
-                    } else if yawd > 0. {
-                        go(speed_turn, -speed_turn, Some(step_time));
-                    } else {
-                        go(-speed_turn, speed_turn, Some(step_time));
-                    }
+        //             if distance < 0.2 {
+        //                 go(0., 0., None);
+        //             } else if yawd.abs() < 0.3 {
+        //                 go(speed_go, speed_go, Some(step_time));
+        //             } else if yawd > 0. {
+        //                 go(speed_turn, -speed_turn, Some(step_time));
+        //             } else {
+        //                 go(-speed_turn, speed_turn, Some(step_time));
+        //             }
 
-                    self.values.last_step_mark = StepMark {
-                        time: time::SystemTime::now(),
-                        pose: pose.clone(),
-                    };
-                }
-            }
-        } else {
-            if let Some(step) = self.values.step {
-                godot_print!("STEP {:?}", step);
-                go(step.0, step.1, Some(step.2 as i32));
-                self.values.step = None;
-                self.values.speed = None;
-            } else if let Some(speed) = self.values.speed {
-                go(speed.0, speed.1, None);
-            }
-        }
+        //             self.values.last_step_mark = StepMark {
+        //                 time: time::SystemTime::now(),
+        //                 pose: pose.clone(),
+        //             };
+        //         }
+        //     }
+        // } else {
+        //     if let Some(step) = self.values.step {
+        //         godot_print!("STEP {:?}", step);
+        //         go(step.0, step.1, Some(step.2 as i32));
+        //         self.values.step = None;
+        //         self.values.speed = None;
+        //     } else if let Some(speed) = self.values.speed {
+        //         go(speed.0, speed.1, None);
+        //     }
+        // }
 
         get_label("GUI/TrackerState").set_text(format!("{:?}", self.values.tracker_state));
         // let labelNode: Label = _owner.get_node(gd::NodePath::from_str("/root/GUI/SpeedRight")).unwrap().cast::<Label>();

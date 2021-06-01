@@ -24,6 +24,7 @@ hashbrown = "*"
 scarlet = "1.1.0"
 rosrust = "0.9"
 rosrust_msg = "0.1"
+crossbeam-channel = "0.5"
 # gdnative = { path = "../../godot-rust/gdnative" }
 
 [build-dependencies]
