@@ -49,7 +49,7 @@ bool keyframe_inserter::new_keyframe_is_needed(const data::frame& curr_frm, cons
     //               and concurrently the mapping module remains standing-by
     const bool cond_a2 = (frm_id_of_last_keyfrm_ + min_num_frms_ <= curr_frm.id_) && mapper_is_idle;
     // Condition A3: Add a keyframe if the field-of-view of the current frame is changed a lot
-    const bool cond_a3 = num_tracked_lms < num_reliable_lms * 0.25;
+    const bool cond_a3 = num_tracked_lms < num_reliable_lms * 0.75;
 
     // Condition B: (Mandatory for keyframe insertion)
     //              Add a keyframe if the number of 3D points exceeds the threshold,
