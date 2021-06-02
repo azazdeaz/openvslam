@@ -76,19 +76,13 @@ use url::Url;
 use zmq;
 
 use crate::navigator;
+use crate::types::*;
 
 extern crate nalgebra as na;
 
 use ndarray::prelude::*;
 use ndarray::{stack, Array, Axis, OwnedRepr};
 
-#[derive(Debug)]
-enum TrackerState {
-    NotInitialized,
-    Initializing,
-    Tracking,
-    Lost,
-}
 
 
 use scarlet::colormap::ListedColorMap;
@@ -190,11 +184,7 @@ fn mat44_to_vertices(pose: &items::v_slam_map::Mat44) -> (Vec<Vector3>, Array2<f
 fn mat44_to_isometry3(pose: &items::v_slam_map::Mat44) -> na::Isometry3<f64> {
     let d = pose.pose.to_vec();
     let translation = na::Translation3::new(d[3], d[7], d[11]);
-    let rotation = na::Matrix3::new(
-        d[0], d[1], d[2],
-        d[4], d[5], d[6],
-        d[8], d[9], d[10],
-    );
+    let rotation = na::Matrix3::new(d[0], d[1], d[2], d[4], d[5], d[6], d[8], d[9], d[10]);
     let rotation = na::Rotation3::from_matrix(&rotation);
     let rotation = UnitQuaternion::from_rotation_matrix(&rotation);
     // let rotation = UnitQuaternion::from_basis_unchecked(&[
@@ -363,8 +353,13 @@ impl Game {
     fn set_target(&mut self, _owner: TRef<Node>, x: f64, y: f64, z: f64) {
         self.values.speed = None;
         self.values.target = (x, y, z);
-        let _ = self.navigator.send_target_pose.try_send(na::Isometry3::<f64>::from_parts(
-            na::Translation3::new(x, y, z), na::UnitQuaternion::identity()));
+        let _ = self
+            .navigator
+            .send_target_pose
+            .try_send(na::Isometry3::<f64>::from_parts(
+                na::Translation3::new(x, y, z),
+                na::UnitQuaternion::identity(),
+            ));
     }
 
     #[export]
@@ -400,13 +395,43 @@ impl Game {
     #[export]
     fn request_slam_terminate(&mut self, _owner: TRef<Node>) {
         godot_print!("request terminate");
-        self.req_slam.send(&"terminate", 0).expect("failed to send cmd");
+        self.req_slam
+            .send(&"terminate", 0)
+            .expect("failed to send cmd");
         let response = self.req_slam.recv_msg(0).unwrap();
-        println!(
-            "Received reply {}",
-            response.as_str().unwrap()
-        );
+        println!("Received reply {}", response.as_str().unwrap());
     }
+
+    #[export]
+    fn estimate_scale(&mut self, _owner: TRef<Node>) {
+        let z = self
+            .values
+            .landmarks
+            .values()
+            .map(|v| v.0.y)
+            .filter(|z| z.is_sign_positive());
+            // .collect::<Vec<f32>>();
+        
+        let z = ndarray::Array::from_iter(z);
+        let ground_level = z.mean();
+        // let z = na::VectorN::from_vec(z);
+        godot_print!("mean {:?}", ground_level);
+
+        if let Some(ground_level) = ground_level {
+            unsafe {
+                let t = Transform::translate(Vector3::new(0.0, -ground_level, 0.0));
+                godot_print!(" {:?}", t);
+                _owner
+                    .find_node("Ground", true, true)
+                    .unwrap()
+                    .assume_safe()
+                    .cast::<CSGMesh>()
+                    .unwrap()
+                    .set_translation(Vector3::new(0.0, -ground_level, 0.0) );
+            }
+        }
+    }
+        
 
     // In order to make a method known to Godot, the #[export] attribute has to be used.
     // In Godot script-classes do not actually inherit the parent class.
@@ -484,9 +509,21 @@ impl Game {
                 0,
             )
             .unwrap();
-        
 
-        
+        _owner
+            .find_node("EstimateScaleBtn", true, true)
+            .unwrap()
+            .assume_safe()
+            .cast::<Button>()
+            .unwrap()
+            .connect(
+                "pressed",
+                _owner,
+                "estimate_scale",
+                VariantArray::new_shared(),
+                0,
+            )
+            .unwrap();
 
         // rosrust::init("listener");
 
@@ -588,13 +625,16 @@ impl Game {
                             self.values.first_ground_truth_pose = Some(iso);
                         } else if let Some(first_iso) = self.values.first_ground_truth_pose {
                             let iso = first_iso.inverse() * iso;
-                            let ROT_ROS2GODOT: na::UnitQuaternion<f64> = na::UnitQuaternion::from_euler_angles(
-                                -std::f64::consts::FRAC_PI_2,
-                                -std::f64::consts::FRAC_PI_2,
-                                0.,
+                            let ROT_ROS2GODOT: na::UnitQuaternion<f64> =
+                                na::UnitQuaternion::from_euler_angles(
+                                    -std::f64::consts::FRAC_PI_2,
+                                    -std::f64::consts::FRAC_PI_2,
+                                    0.,
+                                );
+                            let ROS2GODOT: na::Isometry3<f64> = na::Isometry3::from_parts(
+                                na::Translation3::identity(),
+                                ROT_ROS2GODOT,
                             );
-                            let ROS2GODOT: na::Isometry3<f64> =
-                                na::Isometry3::from_parts(na::Translation3::identity(), ROT_ROS2GODOT);                            
                             let iso = ROS2GODOT * iso;
                             let marker = _owner
                                 .get_node("Spatial/RosFrame/GTPose")
@@ -605,7 +645,8 @@ impl Game {
                             marker.set_transform(iso3_to_gd(&iso));
 
                             if let Some(camera_pose) = &self.values.camera_pose {
-                                let scale = iso.translation.vector.magnitude() / camera_pose.translation.vector.magnitude();
+                                let scale = iso.translation.vector.magnitude()
+                                    / camera_pose.translation.vector.magnitude();
                                 godot_print!("SCALE={}", scale);
                                 if scale.is_normal() {
                                     let frames = _owner
@@ -614,8 +655,12 @@ impl Game {
                                         .assume_safe()
                                         .cast::<Spatial>()
                                         .unwrap();
-                                    
-                                    frames.set_scale(Vector3::new(scale as f32, scale as f32, scale as f32));
+
+                                    frames.set_scale(Vector3::new(
+                                        scale as f32,
+                                        scale as f32,
+                                        scale as f32,
+                                    ));
                                 }
                             }
                         }
@@ -640,12 +685,9 @@ impl Game {
                         let colormap: ListedColorMap = ListedColorMap::plasma();
                         for landmark in msg.landmarks.iter() {
                             if landmark.coords.len() != 0 {
-                                if landmark.num_observations
-                                    > self.values.max_lm_obs as i32
-                                {
+                                if landmark.num_observations > self.values.max_lm_obs as i32 {
                                     godot_print!("lm max num ob {}", landmark.num_observations);
-                                    self.values.max_lm_obs =
-                                        landmark.num_observations as u32;
+                                    self.values.max_lm_obs = landmark.num_observations as u32;
                                 }
                                 let val =
                                     0.5 + f64::min(0.5, landmark.num_observations as f64 / 24.0); //self.values.max_lm_obs as f64;
@@ -683,8 +725,10 @@ impl Game {
                                     _ => None,
                                 };
                                 if let Some(tracker_state) = tracker_state {
-                                    self.values.tracker_state = tracker_state
+                                    self.values.tracker_state = tracker_state;
+                                    self.navigator.send_tracker_state.send(tracker_state);
                                 }
+
                             }
                             _owner.emit_signal("message", &[Variant::from_str(text)]);
                         }
@@ -761,7 +805,7 @@ impl Game {
                         landmark_mesh.begin(Mesh::PRIMITIVE_POINTS, Null::null());
                         // landmark_mesh.set_color(Colors::LANDMARK1.as_godot());
                         for (v, c, num_obs) in self.values.landmarks.values() {
-                            if num_obs >= &self.values.min_lm_obs {
+                            if num_obs >= &self.values.min_lm_obs && v.y.is_sign_positive() {
                                 landmark_mesh.set_color(*c);
                                 landmark_mesh.add_vertex(*v);
                             }

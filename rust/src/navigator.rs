@@ -1,23 +1,21 @@
-use crossbeam_channel::{unbounded, Sender, tick, select};
+use crate::types::*;
+use crossbeam_channel::{select, tick, unbounded, Sender};
 use nalgebra as na;
-use zmq;
 use std::thread;
-use std::time::{Instant, Duration};
+use std::time::{Duration, Instant};
+use zmq;
 
 type Iso3 = na::Isometry3<f64>;
-
 
 fn angle_difference(bearing_from: f64, bearing_to: f64) -> f64 {
     let pi = std::f64::consts::PI;
     let diff = bearing_to - bearing_from;
 
     if diff > pi {
-        diff - pi*2.0
-    }
-    else if diff < -pi {
-        diff + pi*2.0
-    }
-    else {
+        diff - pi * 2.0
+    } else if diff < -pi {
+        diff + pi * 2.0
+    } else {
         diff
     }
 }
@@ -30,13 +28,13 @@ fn angle_difference(bearing_from: f64, bearing_to: f64) -> f64 {
 //     println!("{} {}", angle_difference(-pi, pi-0.1), -0.1);
 // }
 
-
 struct NavState {
     speed: (f64, f64),
     teleop_speed: ((f64, f64), Instant),
     cam_pose: (Iso3, Instant),
     target_pose: Option<Iso3>,
     self_drive_enabled: bool,
+    tracker_state: TrackerState,
 }
 
 impl NavState {
@@ -47,6 +45,7 @@ impl NavState {
             cam_pose: (Iso3::identity(), Instant::now()),
             target_pose: None,
             self_drive_enabled: false,
+            tracker_state: TrackerState::NotInitialized,
         }
     }
 
@@ -66,29 +65,29 @@ impl NavState {
         self.self_drive_enabled = enable;
     }
 
+    fn set_tracker_state(&mut self, tracker_state: TrackerState) {
+        self.tracker_state = tracker_state;
+    }
+
     fn is_expired(time: Instant) -> bool {
-        println!(" {:?} {:?} ", time.checked_add(Duration::from_millis(600)).unwrap() , Instant::now());
-        time.checked_add(Duration::from_millis(600)).unwrap() < Instant::now().
+        time.checked_add(Duration::from_millis(600)).unwrap() < Instant::now()
     }
 
     fn step(&mut self) {
         self.speed = if !self.self_drive_enabled {
             if NavState::is_expired(self.teleop_speed.1) {
                 (0.0, 0.0)
-            }
-            else {
+            } else {
                 self.teleop_speed.0
             }
-        }
-        else if NavState::is_expired(self.cam_pose.1) {
+        } else if NavState::is_expired(self.cam_pose.1)
+            || !matches!(self.tracker_state, TrackerState::Tracking)
+        {
             (0.0, 0.0)
-        }
-        else if let Some(target_pose) = self.target_pose {
-            
+        } else if let Some(target_pose) = self.target_pose {
             let pose = self.cam_pose.0;
             let speed_go = 0.2;
             let speed_turn = 0.2;
-
 
             let p = na::Point3::new(0.0, 0.0, 1.0);
             let p = pose.rotation * p;
@@ -104,7 +103,9 @@ impl NavState {
                 "from {:?} to {:?} is |{},{}|={}; yaw_target={} yaw_bot={} yawd={}",
                 pose.translation.vector,
                 target_pose.translation.vector,
-                dx,dz,distance,
+                dx,
+                dz,
+                distance,
                 yaw_target,
                 yaw_bot,
                 yawd
@@ -119,19 +120,18 @@ impl NavState {
             } else {
                 (-speed_turn, speed_turn)
             }
-        }
-        else {
+        } else {
             (0.0, 0.0)
         }
     }
 }
-
 
 pub struct Navigator {
     pub send_cam_pose: Sender<Iso3>,
     pub send_target_pose: Sender<Iso3>,
     pub send_teleop_speed: Sender<(f64, f64)>,
     pub send_self_drive_enabled: Sender<bool>,
+    pub send_tracker_state: Sender<TrackerState>,
 }
 
 impl Navigator {
@@ -140,6 +140,7 @@ impl Navigator {
         let (send_target_pose, recv_target_pose) = unbounded();
         let (send_teleop_speed, recv_teleop_speed) = unbounded();
         let (send_self_drive_enabled, recv_self_drive_enabled) = unbounded();
+        let (send_tracker_state, recv_tracker_state) = unbounded();
 
         let context = zmq::Context::new();
         let publisher = context.socket(zmq::PUB).unwrap();
@@ -157,6 +158,7 @@ impl Navigator {
                     recv(recv_target_pose) -> msg => if let Ok(msg) = msg { state.set_target_pose(msg) },
                     recv(recv_teleop_speed) -> msg => if let Ok(msg) = msg { state.set_teleop_speed(msg) },
                     recv(recv_self_drive_enabled) -> msg => if let Ok(msg) = msg { state.set_self_drive_enabled(msg) },
+                    recv(recv_tracker_state) -> msg => if let Ok(msg) = msg { state.set_tracker_state(msg) },
                     recv(ticker) -> _ => {
                         state.step();
                         let cmd = format!("{},{}", state.speed.0, state.speed.1);
@@ -171,6 +173,7 @@ impl Navigator {
             send_target_pose,
             send_teleop_speed,
             send_self_drive_enabled,
+            send_tracker_state,
         }
     }
 }

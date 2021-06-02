@@ -1,6 +1,6 @@
 mod game;
 mod navigator;
-mod msg;
+mod types;
 
 use gdnative::prelude::{godot_init, InitHandle};
 
