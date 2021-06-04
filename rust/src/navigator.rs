@@ -28,6 +28,23 @@ fn angle_difference(bearing_from: f64, bearing_to: f64) -> f64 {
 //     println!("{} {}", angle_difference(-pi, pi-0.1), -0.1);
 // }
 
+pub struct RobotBody {}
+
+impl RobotBody {
+    pub fn get_cam_height() -> f64 {
+        105.0
+    }
+    pub fn base_pose(cam_pose: Iso3, slam_scale: f64) -> Iso3 {
+        let cam_height = RobotBody::get_cam_height();
+        let cam_ahead = 128.0;
+        let cam2base = na::Translation3::new(0.0, cam_height * slam_scale, -cam_ahead * slam_scale);
+        cam_pose * cam2base
+    }
+    pub fn real_distance(slam_distance: f64, slam_scale: f64) -> f64 {
+        slam_distance / slam_scale
+    }
+}
+
 struct NavState {
     speed: (f64, f64),
     teleop_speed: ((f64, f64), Instant),
@@ -35,6 +52,7 @@ struct NavState {
     target_pose: Option<Iso3>,
     self_drive_enabled: bool,
     tracker_state: TrackerState,
+    slam_scale: f64,
 }
 
 impl NavState {
@@ -46,6 +64,7 @@ impl NavState {
             target_pose: None,
             self_drive_enabled: false,
             tracker_state: TrackerState::NotInitialized,
+            slam_scale: 1.0,
         }
     }
 
@@ -69,6 +88,10 @@ impl NavState {
         self.tracker_state = tracker_state;
     }
 
+    fn set_slam_scale(&mut self, slam_scale: f64) {
+        self.slam_scale = slam_scale;
+    }
+
     fn is_expired(time: Instant) -> bool {
         time.checked_add(Duration::from_millis(600)).unwrap() < Instant::now()
     }
@@ -85,7 +108,7 @@ impl NavState {
         {
             (0.0, 0.0)
         } else if let Some(target_pose) = self.target_pose {
-            let pose = self.cam_pose.0;
+            let pose = RobotBody::base_pose(self.cam_pose.0, self.slam_scale);
             let speed_go = 0.2;
             let speed_turn = 0.2;
 
@@ -98,6 +121,7 @@ impl NavState {
             let yaw_target = dx.atan2(dz);
             let yawd = angle_difference(yaw_bot, yaw_target);
             let distance = dx.hypot(dz);
+            let distance = RobotBody::real_distance(distance, self.slam_scale);
 
             println!(
                 "from {:?} to {:?} is |{},{}|={}; yaw_target={} yaw_bot={} yawd={}",
@@ -111,7 +135,9 @@ impl NavState {
                 yawd
             );
 
-            if distance < 1.0 {
+            let distance_tolerance = 100.0;
+
+            if distance < distance_tolerance {
                 (0., 0.)
             } else if yawd.abs() < 0.3 {
                 (speed_go, speed_go)
@@ -132,6 +158,8 @@ pub struct Navigator {
     pub send_teleop_speed: Sender<(f64, f64)>,
     pub send_self_drive_enabled: Sender<bool>,
     pub send_tracker_state: Sender<TrackerState>,
+    pub send_slam_scale: Sender<f64>,
+    pub base_pose: Option<Iso3>,
 }
 
 impl Navigator {
@@ -141,6 +169,7 @@ impl Navigator {
         let (send_teleop_speed, recv_teleop_speed) = unbounded();
         let (send_self_drive_enabled, recv_self_drive_enabled) = unbounded();
         let (send_tracker_state, recv_tracker_state) = unbounded();
+        let (send_slam_scale, recv_slam_scale) = unbounded();
 
         let context = zmq::Context::new();
         let publisher = context.socket(zmq::PUB).unwrap();
@@ -159,6 +188,7 @@ impl Navigator {
                     recv(recv_teleop_speed) -> msg => if let Ok(msg) = msg { state.set_teleop_speed(msg) },
                     recv(recv_self_drive_enabled) -> msg => if let Ok(msg) = msg { state.set_self_drive_enabled(msg) },
                     recv(recv_tracker_state) -> msg => if let Ok(msg) = msg { state.set_tracker_state(msg) },
+                    recv(recv_slam_scale) -> msg => if let Ok(msg) = msg { state.set_slam_scale(msg) },
                     recv(ticker) -> _ => {
                         state.step();
                         let cmd = format!("{},{}", state.speed.0, state.speed.1);
@@ -174,6 +204,8 @@ impl Navigator {
             send_teleop_speed,
             send_self_drive_enabled,
             send_tracker_state,
+            send_slam_scale,
+            base_pose: None
         }
     }
 }

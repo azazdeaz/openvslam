@@ -62,6 +62,7 @@ struct Values {
     ground_truth_pose: Option<Transform>,
     first_ground_truth_pose: Option<na::Isometry3<f64>>,
     scale_factor: f64,
+    slam_scale: f64,
 }
 
 use std::sync::mpsc;
@@ -81,9 +82,7 @@ use crate::types::*;
 extern crate nalgebra as na;
 
 use ndarray::prelude::*;
-use ndarray::{stack, Array, Axis, OwnedRepr};
-
-
+use ndarray::{stack, Array, Axis};
 
 use scarlet::colormap::ListedColorMap;
 
@@ -340,6 +339,7 @@ impl Game {
                 ground_truth_pose: None,
                 first_ground_truth_pose: None,
                 scale_factor: 1.0,
+                slam_scale: 1.0,
             },
             // pub_vel: publisher,
             req_slam,
@@ -393,6 +393,21 @@ impl Game {
     }
 
     #[export]
+    fn toggle_connection(&mut self, _owner: TRef<Node>, on: bool) {
+        let msg = if on {
+            "start_publisher"
+        } else {
+            "pause_publisher"
+        };
+        godot_print!("tell {}", msg);
+        self.req_slam
+            .send(&msg, 0)
+            .expect("failed to send cmd");
+        let response = self.req_slam.recv_msg(0).unwrap();
+        println!("Received reply {}", response.as_str().unwrap());
+    }
+
+    #[export]
     fn request_slam_terminate(&mut self, _owner: TRef<Node>) {
         godot_print!("request terminate");
         self.req_slam
@@ -410,8 +425,8 @@ impl Game {
             .values()
             .map(|v| v.0.y)
             .filter(|z| z.is_sign_positive());
-            // .collect::<Vec<f32>>();
-        
+        // .collect::<Vec<f32>>();
+
         let z = ndarray::Array::from_iter(z);
         let ground_level = z.mean();
         // let z = na::VectorN::from_vec(z);
@@ -427,11 +442,13 @@ impl Game {
                     .assume_safe()
                     .cast::<CSGMesh>()
                     .unwrap()
-                    .set_translation(Vector3::new(0.0, -ground_level, 0.0) );
+                    .set_translation(Vector3::new(0.0, -ground_level, 0.0));
+
+                self.values.slam_scale = ground_level as f64 / navigator::RobotBody::get_cam_height();
+                self.navigator.send_slam_scale.send(self.values.slam_scale).unwrap();
             }
         }
     }
-        
 
     // In order to make a method known to Godot, the #[export] attribute has to be used.
     // In Godot script-classes do not actually inherit the parent class.
@@ -459,7 +476,6 @@ impl Game {
                     .connect("tcp://127.0.0.1:5566")
                     .expect("failed connecting subscriber");
                 subscriber.set_subscribe(b"").expect("failed subscribing");
-
                 loop {
                     let envelope = subscriber
                         .recv_string(0)
@@ -479,6 +495,27 @@ impl Game {
                 }
             }
         });
+
+        fn find_node<T: SubClass<Node>>(owner: TRef<Node>, mask: String) -> TRef<T> {
+            unsafe {
+                owner
+                    .find_node(mask, true, true)
+                    .unwrap()
+                    .assume_safe()
+                    .cast::<T>()
+                    .unwrap()
+            }
+        }
+
+        find_node::<CheckButton>(_owner, "ConnectionBtn".into())
+            .connect(
+                "toggled",
+                _owner,
+                "toggle_connection",
+                VariantArray::new_shared(),
+                0,
+            )
+            .unwrap();
 
         _owner
             .find_node("ScaleSlider", true, true)
@@ -594,7 +631,7 @@ impl Game {
     }
     // This function will be called in every frame
     #[export]
-    unsafe fn _process(&mut self, _owner: &Node, delta: f64) {
+    unsafe fn _process(&mut self, _owner: &Node, _delta: f64) {
         // if let Some(rx) = &self.rx_image {
         //     while let Ok(pixels) = rx.try_recv() {
         //         godot_print!("got image");
@@ -726,9 +763,11 @@ impl Game {
                                 };
                                 if let Some(tracker_state) = tracker_state {
                                     self.values.tracker_state = tracker_state;
-                                    self.navigator.send_tracker_state.send(tracker_state);
+                                    self.navigator
+                                        .send_tracker_state
+                                        .send(tracker_state)
+                                        .unwrap();
                                 }
-
                             }
                             _owner.emit_signal("message", &[Variant::from_str(text)]);
                         }
@@ -855,6 +894,15 @@ impl Game {
                                 .cast::<Spatial>()
                                 .unwrap();
                             marker.set_transform(transform);
+
+                            let marker = _owner
+                                .get_node("Spatial/Frames/BasePose")
+                                .unwrap()
+                                .assume_safe()
+                                .cast::<CSGBox>()
+                                .unwrap();
+                            let base_pose = navigator::RobotBody::base_pose(*camera_pose, self.values.slam_scale);
+                            marker.set_transform(iso3_to_gd(&base_pose));
                         }
 
                         if let Some(ground_truth_pose) = self.values.ground_truth_pose {
