@@ -1,3 +1,15 @@
+run-cmake:
+	cd build && \
+	cmake \
+	-DCMAKE_BUILD_TYPE=Release \
+	-DCMAKE_INSTALL_PREFIX=/usr/local \
+	-DBUILD_UNIT_TESTS=OFF \
+	-DBUILD_EXAMPLES=ON \
+	-DBOW_FRAMEWORK=FBoW \
+	-DUSE_SOCKET_PUBLISHER=ON \
+	-DCMAKE_INSTALL_PREFIX=/home/azazdeaz/repos/good-bug/openvslam-wrap/openvslam/dependencies \
+	..
+
 dev:
 	cd build && make -j8 && ./run_image_slam -v orb_vocab.dbow2 -c ../../dataset/fisheyehd.config.yaml -i ../../dataset/fish/fish4
 
