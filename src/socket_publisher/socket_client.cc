@@ -44,7 +44,7 @@ socket_client::socket_client(const std::string& server_uri)
     publisher_ = zmq::socket_t(ctx_, zmq::socket_type::pub);
     int confl = 1;
     publisher_.setsockopt(ZMQ_CONFLATE, &confl, sizeof(confl));
-    publisher_.bind("tcp://*:5566");
+    publisher_.bind("tcp://0.0.0.0:5566");
 
 
     // // subscribe to control messages
