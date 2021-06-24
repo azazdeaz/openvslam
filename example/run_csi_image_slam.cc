@@ -45,13 +45,12 @@ void mono_tracking(const std::shared_ptr<openvslam::config>& cfg,
                    const bool eval_log, const std::string& map_db_path_in, const std::string& map_db_path_out) {
     spdlog::set_level(spdlog::level::trace);
     zmq::context_t ctx(2);
-
     int capture_width = 640 ;
     int capture_height = 480 ;
     int display_width = 640 ;
     int display_height = 480 ;
     int framerate = 4 ;
-    int flip_method = 2 ;
+    int flip_method = 0 ;
 
     std::string pipeline = gstreamer_pipeline(capture_width,
 	capture_height,

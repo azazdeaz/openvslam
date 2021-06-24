@@ -19,4 +19,4 @@ run-api:
 	cd build && make -j3 && ./run_api -c ../../config/cfg.yaml -v ../../config/orb_vocab.fbow
 
 bot:
-	cd build && make -j3 && ./run_csi_image_slam -v ../../config/orb_vocab.fbow -c ../../config/picam640x480wide.yaml  --mask ../../config/mask2.png # --map-db-out map1b.msg # --map-db-in map1.msg  --map-db-out map2.msg
+	cd build && make -j3 && ./run_csi_image_slam -v ../../config/orb_vocab.fbow -c ../../config/leopard640x480.yaml  --mask ../../config/mask1.png # --map-db-out map1b.msg # --map-db-in map1.msg  --map-db-out map2.msg
