@@ -1,0 +1,22 @@
+syntax = "proto3";
+
+package openvslam_api;
+
+message StartSystem {
+  string map_file_path = 1;
+  bool enable_mapping = 2;
+}
+
+message Ok {}
+
+message Err {
+  string text = 1;
+}
+
+message Call {
+  oneof msg {
+    Ok ok = 1;
+    Err err = 2;
+    StartSystem start_system = 3;
+  }
+}
