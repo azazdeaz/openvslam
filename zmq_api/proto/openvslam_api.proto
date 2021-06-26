@@ -2,21 +2,38 @@ syntax = "proto3";
 
 package openvslam_api;
 
-message StartSystem {
-  string map_file_path = 1;
-  bool enable_mapping = 2;
-}
 
-message Ok {}
+message Request {
+  message GetLandmarks {}
+  message GetCameraPosition {}
+  message SaveMapDB {
+    string path = 1;
+  }
+  message Shutdown {}
 
-message Err {
-  string text = 1;
-}
-
-message Call {
+  uint32 id = 1;
   oneof msg {
-    Ok ok = 1;
-    Err err = 2;
-    StartSystem start_system = 3;
+    GetLandmarks get_landmarks = 2;
+    GetCameraPosition get_camera_position = 3;
+    SaveMapDB save_map_db = 4;
+    Shutdown shutdown = 5;
+  }
+}
+
+
+message Response {
+  message Ok {}
+  message Err {
+    string text = 1;
+  }
+  message Landmarks {}
+  message Position {}
+
+  uint32 id = 1;
+  oneof msg {
+    Ok ok = 2;
+    Err err = 3;
+    Landmarks landmarks = 4;
+    Position position = 5;
   }
 }

@@ -9,11 +9,15 @@ run-cmake:
 	cmake \
 	-DCMAKE_BUILD_TYPE=Release \
 	-DBUILD_UNIT_TESTS=OFF \
-	-DBUILD_EXAMPLES=ON \
+	-DBUILD_EXAMPLES=OFF \
+	-DBUILD_WITH_MARCH_NATIVE=ON \
 	-DBOW_FRAMEWORK=FBoW \
 	-DUSE_SOCKET_PUBLISHER=OFF \
 	-DCMAKE_INSTALL_PREFIX=/home/azazdeaz/repos/good-bug/openvslam-wrap/openvslam/dependencies \
 	..
+
+build-api:
+	cd build && make -j3
 
 run-api:
 	cd build && make -j3 && ./run_api -c ../../config/cfg.yaml -v ../../config/orb_vocab.fbow
