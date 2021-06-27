@@ -2,21 +2,20 @@ syntax = "proto3";
 
 package openvslam_api;
 
-
 message Request {
   message GetLandmarks {}
   message GetCameraPosition {}
   message SaveMapDB {
     string path = 1;
   }
-  message Shutdown {}
+  message Terminate {}
 
   uint32 id = 1;
   oneof msg {
     GetLandmarks get_landmarks = 2;
     GetCameraPosition get_camera_position = 3;
     SaveMapDB save_map_db = 4;
-    Shutdown shutdown = 5;
+    Terminate terminate = 5;
   }
 }
 
@@ -35,5 +34,35 @@ message Response {
     Err err = 3;
     Landmarks landmarks = 4;
     Position position = 5;
+  }
+}
+
+
+message Stream {
+  message Transform {}
+  // message Mat44 {
+  //   double m11 = 1;
+  //   double m12 = 2;
+  //   double m13 = 3;
+  //   double m14 = 4;
+  //   double m21 = 5;
+  //   double m22 = 6;
+  //   double m23 = 7;
+  //   double m24 = 8;
+  //   double m31 = 9;
+  //   double m32 = 10;
+  //   double m33 = 11;
+  //   double m34 = 12;
+  //   double m41 = 13;
+  //   double m42 = 14;
+  //   double m43 = 15;
+  //   double m44 = 16;
+  // }
+  message Mat44 {
+    repeated double pose = 1;
+  }
+
+  oneof msg {
+    Mat44 camera_position = 1;
   }
 }

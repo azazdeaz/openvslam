@@ -118,7 +118,7 @@ int main(int argc, char* argv[]) {
     int framerate = 4 ;
     int flip_method = 0 ;
 
-    bool stream_pose = false;
+    bool stream_pose = true;
 
     std::string pipeline = gstreamer_pipeline(capture_width, capture_height, framerate, flip_method);
     pipeline = usb_pipeline();
@@ -154,7 +154,7 @@ int main(int argc, char* argv[]) {
             auto current_time = std::chrono::system_clock::now();
             auto duration_in_seconds = std::chrono::duration<double>(current_time.time_since_epoch());
                 
-            std::cout << "process image..." << std::endl;
+            // std::cout << "process image..." << std::endl;
             auto cam_pose_cw = SLAM.feed_monocular_frame(img, duration_in_seconds.count(), mask);
             // }
 
@@ -163,13 +163,22 @@ int main(int argc, char* argv[]) {
             const auto track_time = std::chrono::duration_cast<std::chrono::duration<double>>(tp_2 - tp_1).count();
 
             if (stream_pose) {
-                openvslam_api::Response response_msg;
-                response_msg.mutable_ok();
+                std::cout << "sending camera pose..." << std::endl;
+                openvslam_api::Stream response_msg;
+                // auto mat = response_msg.mutable_camera_position();
+                auto mat = response_msg.mutable_camera_position();
+                for (int i = 0; i < 16; i++) {
+                    int ir = i / 4;
+                    int il = i % 4;
+                    mat->add_pose(cam_pose_cw(ir, il));
+                }
+                // response_msg.set_allocated_camera_position(&mat);
+                
                 std::string msg_str;
                 response_msg.SerializeToString(&msg_str);
                 zmq::message_t response (msg_str.size());
                 memcpy ((void *) response.data (), msg_str.c_str(), msg_str.size());
-                // sock_stream.send(response, zmq::send_flags::dontwait);
+                sock_stream.send(response, zmq::send_flags::dontwait);
             }
 
             // check if the termination of SLAM system is requested or not
@@ -202,8 +211,8 @@ int main(int argc, char* argv[]) {
         request_msg.ParseFromString(msg_str);
         std::cout << "Got command " << std::endl;
         switch (request_msg.msg_case()) {
-            case openvslam_api::Request::MsgCase::kShutdown:
-                std::cout << "Shutting down..." << std::endl;
+            case openvslam_api::Request::MsgCase::kTerminate:
+                std::cout << "Terminating down..." << std::endl;
                 SLAM.request_terminate();
                 break;
         }
