@@ -63,6 +63,7 @@ int main(int argc, char* argv[]) {
     auto mask_img_path = op.add<popl::Value<std::string>>("", "mask", "mask image path", "");
     auto map = op.add<popl::Value<std::string>>("", "map", "db map path", "");
     auto debug_mode = op.add<popl::Switch>("", "debug", "debug mode");
+    auto video_file_path = op.add<popl::Value<std::string>>("m", "video", "video file path");
     auto eval_log = op.add<popl::Switch>("", "eval-log", "store trajectory and tracking times for evaluation");
     try {
         op.parse(argc, argv);
@@ -106,12 +107,14 @@ int main(int argc, char* argv[]) {
     }
 
     openvslam::system SLAM(cfg, vocab_file_path->value());
+    SLAM.startup();
     const cv::Mat mask = mask_img_path->value().empty() ? cv::Mat{} : cv::imread(mask_img_path->value(), cv::IMREAD_GRAYSCALE);
 
     if (!map->value().empty()) {
         std::cout << "loading map..." << std::endl;
         SLAM.load_map_database(map->value());
     }
+
 
     int capture_width = 640 ;
     int capture_height = 480 ;
@@ -124,16 +127,24 @@ int main(int argc, char* argv[]) {
     pipeline = usb_pipeline();
     std::cout << "Using pipeline: \n\t" << pipeline << "\n";
     // std::cout<<cv::getBuildInformation()<<std::endl;
-    cv::VideoCapture cap(pipeline, cv::CAP_GSTREAMER);
-    
-    if(!cap.isOpened()) {
-        std::cout<<"Failed to open camera. Try USB camera..."<<std::endl;
-        cap.release();
-        cap = cv::VideoCapture(0);
-        // TODO remove this
+    cv::VideoCapture cap;
+    bool no_sleep = true;
+    if (!video_file_path->value().empty()) {
+        cap = cv::VideoCapture(video_file_path->value(), cv::CAP_FFMPEG);
+        no_sleep = false;
+    }
+    else {
+        cap = cv::VideoCapture(pipeline, cv::CAP_GSTREAMER);
+        
         if(!cap.isOpened()) {
-            std::cout<<"Failed to USB camera."<<std::endl;
-            return EXIT_FAILURE;
+            std::cout<<"Failed to open camera. Try USB camera..."<<std::endl;
+            cap.release();
+            cap = cv::VideoCapture(0);
+            // TODO remove this
+            if(!cap.isOpened()) {
+                std::cout<<"Failed to USB camera."<<std::endl;
+                return EXIT_FAILURE;
+            }
         }
     }
 
@@ -153,11 +164,17 @@ int main(int argc, char* argv[]) {
 
             auto current_time = std::chrono::system_clock::now();
             auto duration_in_seconds = std::chrono::duration<double>(current_time.time_since_epoch());
+            
+            openvslam::Mat44_t cam_pose_cw;
+            if (!img.empty()) {
+            std::cout << "process image..." << std::endl;
+            cam_pose_cw = SLAM.feed_monocular_frame(img, duration_in_seconds.count(), mask);
+            }
+            else {
                 
-            // std::cout << "process image..." << std::endl;
-            auto cam_pose_cw = SLAM.feed_monocular_frame(img, duration_in_seconds.count(), mask);
-            // }
-
+            std::cout << "frame was empty..." << std::endl;
+            }
+            std::cout << "image processed..." << std::endl;
             const auto tp_2 = std::chrono::steady_clock::now();
 
             const auto track_time = std::chrono::duration_cast<std::chrono::duration<double>>(tp_2 - tp_1).count();
@@ -179,6 +196,13 @@ int main(int argc, char* argv[]) {
                 zmq::message_t response (msg_str.size());
                 memcpy ((void *) response.data (), msg_str.c_str(), msg_str.size());
                 sock_stream.send(response, zmq::send_flags::dontwait);
+            }
+
+            if (!no_sleep) {
+                const auto wait_time = 1.0 / cfg->camera_->fps_ - track_time;
+                if (0.0 < wait_time) {
+                    std::this_thread::sleep_for(std::chrono::microseconds(static_cast<unsigned int>(wait_time * 1e6)));
+                }
             }
 
             // check if the termination of SLAM system is requested or not
