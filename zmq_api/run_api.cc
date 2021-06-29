@@ -5,6 +5,7 @@
 
 #include "openvslam/system.h"
 #include "openvslam/config.h"
+#include "openvslam/publish/map_publisher.h"
 
 #include <iostream>
 #include <chrono>
@@ -150,10 +151,16 @@ int main(int argc, char* argv[]) {
 
     std::thread thread([&]() {
         cv::Mat img;
-
+        std::shared_ptr<openvslam::publish::map_publisher> map_publisher(SLAM.get_map_publisher());
         std::cout << "Hit ESC to exit" << "\n" ;
         while(true)
-        {
+        {   
+            // HACK! skip three frames in video
+            if (!no_sleep) {
+                cap.read(img);
+                cap.read(img);
+                cap.read(img);
+            }
             if (!cap.read(img)) {
                 std::cout<<"Capture read error"<<std::endl;
                 cap.release();
@@ -180,6 +187,7 @@ int main(int argc, char* argv[]) {
             const auto track_time = std::chrono::duration_cast<std::chrono::duration<double>>(tp_2 - tp_1).count();
 
             if (stream_pose) {
+                auto cam_pose = map_publisher->get_current_cam_pose_wc();
                 std::cout << "sending camera pose..." << std::endl;
                 openvslam_api::Stream response_msg;
                 // auto mat = response_msg.mutable_camera_position();
@@ -187,7 +195,7 @@ int main(int argc, char* argv[]) {
                 for (int i = 0; i < 16; i++) {
                     int ir = i / 4;
                     int il = i % 4;
-                    mat->add_pose(cam_pose_cw(ir, il));
+                    mat->add_pose(cam_pose(ir, il));
                 }
                 // response_msg.set_allocated_camera_position(&mat);
                 
