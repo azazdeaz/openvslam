@@ -6,6 +6,7 @@
 #include "openvslam/system.h"
 #include "openvslam/config.h"
 #include "openvslam/publish/map_publisher.h"
+#include "openvslam/data/landmark.h"
 
 #include <iostream>
 #include <chrono>
@@ -123,6 +124,7 @@ int main(int argc, char* argv[]) {
     int flip_method = 0 ;
 
     bool stream_pose = true;
+    bool stream_landmarks = true;
 
     std::string pipeline = gstreamer_pipeline(capture_width, capture_height, framerate, flip_method);
     pipeline = usb_pipeline();
@@ -149,10 +151,16 @@ int main(int argc, char* argv[]) {
         }
     }
 
+    
+    
+
     std::thread thread([&]() {
         cv::Mat img;
         std::shared_ptr<openvslam::publish::map_publisher> map_publisher(SLAM.get_map_publisher());
         std::cout << "Hit ESC to exit" << "\n" ;
+
+        auto landmarks_sent_at = std::chrono::steady_clock::now();
+
         while(true)
         {   
             // HACK! skip three frames in video
@@ -174,33 +182,59 @@ int main(int argc, char* argv[]) {
             
             openvslam::Mat44_t cam_pose_cw;
             if (!img.empty()) {
-            std::cout << "process image..." << std::endl;
+            // std::cout << "process image..." << std::endl;
             cam_pose_cw = SLAM.feed_monocular_frame(img, duration_in_seconds.count(), mask);
             }
             else {
                 
             std::cout << "frame was empty..." << std::endl;
             }
-            std::cout << "image processed..." << std::endl;
+            // std::cout << "image processed..." << std::endl;
             const auto tp_2 = std::chrono::steady_clock::now();
 
             const auto track_time = std::chrono::duration_cast<std::chrono::duration<double>>(tp_2 - tp_1).count();
 
             if (stream_pose) {
                 auto cam_pose = map_publisher->get_current_cam_pose_wc();
-                std::cout << "sending camera pose..." << std::endl;
-                openvslam_api::Stream response_msg;
-                // auto mat = response_msg.mutable_camera_position();
-                auto mat = response_msg.mutable_camera_position();
+                // std::cout << "sending camera pose..." << std::endl;
+                openvslam_api::Stream stream_msg;
+                // auto mat = stream_msg.mutable_camera_position();
+                auto mat = stream_msg.mutable_camera_position();
                 for (int i = 0; i < 16; i++) {
                     int ir = i / 4;
                     int il = i % 4;
                     mat->add_pose(cam_pose(ir, il));
                 }
-                // response_msg.set_allocated_camera_position(&mat);
                 
                 std::string msg_str;
-                response_msg.SerializeToString(&msg_str);
+                stream_msg.SerializeToString(&msg_str);
+                zmq::message_t response (msg_str.size());
+                memcpy ((void *) response.data (), msg_str.c_str(), msg_str.size());
+                sock_stream.send(response, zmq::send_flags::dontwait);
+            }
+
+            if (stream_landmarks && std::chrono::seconds(1) < std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - landmarks_sent_at)) {
+                std::cout << "sending landmarks..." << std::endl;
+                landmarks_sent_at = std::chrono::steady_clock::now();
+
+                openvslam_api::Stream stream_msg;
+                auto landmarks = stream_msg.mutable_landmarks();
+                
+                std::vector<openvslam::data::landmark*> all_landmarks;
+                std::set<openvslam::data::landmark*> local_landmarks;
+                map_publisher->get_landmarks(all_landmarks, local_landmarks);
+                for (const auto landmark : all_landmarks) {
+                    const auto pos = landmark->get_pos_in_world();
+                    auto lm_pb = landmarks->add_landmarks();
+                    lm_pb->set_id(landmark->id_);
+                    lm_pb->set_x(pos[0]);
+                    lm_pb->set_y(pos[1]);
+                    lm_pb->set_z(pos[2]);
+                    lm_pb->set_num_observations(landmark->num_observations());
+                }
+
+                std::string msg_str;
+                stream_msg.SerializeToString(&msg_str);
                 zmq::message_t response (msg_str.size());
                 memcpy ((void *) response.data (), msg_str.c_str(), msg_str.size());
                 sock_stream.send(response, zmq::send_flags::dontwait);
