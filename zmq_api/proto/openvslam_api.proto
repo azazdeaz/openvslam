@@ -83,9 +83,17 @@ message Stream {
     repeated Keyframe keyframes = 1;
   }
 
+  enum TrackingState {
+    NOT_INITIALIZED = 0;
+    INITIALIZING = 1;
+    TRACKING = 2;
+    LOST = 3;
+  }
+
   oneof msg {
     Mat44 camera_position = 1;
     Landmarks landmarks = 2;
     Keyframes keyframes = 3;
+    TrackingState tracking_state = 4;
   }
 }

@@ -126,6 +126,7 @@ int main(int argc, char* argv[]) {
     bool stream_pose = true;
     bool stream_landmarks = true;
     bool stream_keyframes = true;
+    bool stream_tracking_state = true;
 
     std::string pipeline = gstreamer_pipeline(capture_width, capture_height, framerate, flip_method);
     pipeline = usb_pipeline();
@@ -267,6 +268,33 @@ int main(int argc, char* argv[]) {
                     }
                 }
 
+                std::string msg_str;
+                stream_msg.SerializeToString(&msg_str);
+                zmq::message_t response (msg_str.size());
+                memcpy ((void *) response.data (), msg_str.c_str(), msg_str.size());
+                sock_stream.send(response, zmq::send_flags::dontwait);
+            }
+
+            if (stream_tracking_state) {
+                auto state = SLAM.get_tracker_state();
+
+                openvslam_api::Stream stream_msg;
+
+                switch(state) {
+                    case openvslam::tracker_state_t::NotInitialized:
+                        stream_msg.set_tracking_state(openvslam_api::Stream_TrackingState::Stream_TrackingState_NOT_INITIALIZED);
+                        break;
+                    case openvslam::tracker_state_t::Initializing:
+                        stream_msg.set_tracking_state(openvslam_api::Stream_TrackingState::Stream_TrackingState_INITIALIZING);
+                        break;
+                    case openvslam::tracker_state_t::Tracking:
+                        stream_msg.set_tracking_state(openvslam_api::Stream_TrackingState::Stream_TrackingState_TRACKING);
+                        break;
+                    case openvslam::tracker_state_t::Lost:
+                        stream_msg.set_tracking_state(openvslam_api::Stream_TrackingState::Stream_TrackingState_LOST);
+                        break;
+                }
+                
                 std::string msg_str;
                 stream_msg.SerializeToString(&msg_str);
                 zmq::message_t response (msg_str.size());
