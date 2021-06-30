@@ -90,10 +90,15 @@ message Stream {
     LOST = 3;
   }
 
+  message Frame {
+    bytes jpeg = 1;
+  }
+
   oneof msg {
     Mat44 camera_position = 1;
     Landmarks landmarks = 2;
     Keyframes keyframes = 3;
     TrackingState tracking_state = 4;
+    Frame frame = 5;
   }
 }

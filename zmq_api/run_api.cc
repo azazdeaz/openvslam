@@ -6,6 +6,7 @@
 #include "openvslam/system.h"
 #include "openvslam/config.h"
 #include "openvslam/publish/map_publisher.h"
+#include "openvslam/publish/frame_publisher.h"
 #include "openvslam/data/landmark.h"
 
 #include <iostream>
@@ -127,6 +128,7 @@ int main(int argc, char* argv[]) {
     bool stream_landmarks = true;
     bool stream_keyframes = true;
     bool stream_tracking_state = true;
+    bool stream_frame = true;
 
     std::string pipeline = gstreamer_pipeline(capture_width, capture_height, framerate, flip_method);
     pipeline = usb_pipeline();
@@ -159,6 +161,7 @@ int main(int argc, char* argv[]) {
     std::thread thread([&]() {
         cv::Mat img;
         std::shared_ptr<openvslam::publish::map_publisher> map_publisher(SLAM.get_map_publisher());
+        std::shared_ptr<openvslam::publish::frame_publisher> frame_publisher(SLAM.get_frame_publisher());
         std::cout << "Hit ESC to exit" << "\n" ;
 
         auto landmarks_sent_at = std::chrono::steady_clock::now();
@@ -295,6 +298,24 @@ int main(int argc, char* argv[]) {
                         break;
                 }
                 
+                std::string msg_str;
+                stream_msg.SerializeToString(&msg_str);
+                zmq::message_t response (msg_str.size());
+                memcpy ((void *) response.data (), msg_str.c_str(), msg_str.size());
+                sock_stream.send(response, zmq::send_flags::dontwait);
+            }
+
+            if (stream_frame) {
+                const auto image = frame_publisher->draw_frame();
+                std::vector<uchar> buf;
+                const std::vector<int> params{static_cast<int>(cv::IMWRITE_JPEG_QUALITY), static_cast<int>(50)};
+                cv::imencode(".jpg", image, buf, params);
+
+                openvslam_api::Stream stream_msg;
+                auto pb_frame = stream_msg.mutable_frame();
+                pb_frame->set_jpeg(buf.data(), buf.size());
+                
+
                 std::string msg_str;
                 stream_msg.SerializeToString(&msg_str);
                 zmq::message_t response (msg_str.size());
