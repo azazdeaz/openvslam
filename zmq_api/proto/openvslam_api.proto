@@ -74,8 +74,18 @@ message Stream {
     repeated Landmark landmarks = 1;
   }
 
+  message Keyframe {
+    uint32 id = 1;
+    Mat44 pose = 2;
+  }
+
+  message Keyframes {
+    repeated Keyframe keyframes = 1;
+  }
+
   oneof msg {
     Mat44 camera_position = 1;
     Landmarks landmarks = 2;
+    Keyframes keyframes = 3;
   }
 }

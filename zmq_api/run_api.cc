@@ -125,6 +125,7 @@ int main(int argc, char* argv[]) {
 
     bool stream_pose = true;
     bool stream_landmarks = true;
+    bool stream_keyframes = true;
 
     std::string pipeline = gstreamer_pipeline(capture_width, capture_height, framerate, flip_method);
     pipeline = usb_pipeline();
@@ -224,6 +225,9 @@ int main(int argc, char* argv[]) {
                 std::set<openvslam::data::landmark*> local_landmarks;
                 map_publisher->get_landmarks(all_landmarks, local_landmarks);
                 for (const auto landmark : all_landmarks) {
+                    if (landmark->will_be_erased()) {
+                        continue;
+                    }
                     const auto pos = landmark->get_pos_in_world();
                     auto lm_pb = landmarks->add_landmarks();
                     lm_pb->set_id(landmark->id_);
@@ -231,6 +235,36 @@ int main(int argc, char* argv[]) {
                     lm_pb->set_y(pos[1]);
                     lm_pb->set_z(pos[2]);
                     lm_pb->set_num_observations(landmark->num_observations());
+                }
+
+                std::string msg_str;
+                stream_msg.SerializeToString(&msg_str);
+                zmq::message_t response (msg_str.size());
+                memcpy ((void *) response.data (), msg_str.c_str(), msg_str.size());
+                sock_stream.send(response, zmq::send_flags::dontwait);
+            }
+
+            if (stream_keyframes) {
+                std::vector<openvslam::data::keyframe*> all_keyframes;
+                map_publisher->get_keyframes(all_keyframes);
+
+                openvslam_api::Stream stream_msg;
+                auto pb_keyframes = stream_msg.mutable_keyframes();
+                
+                for (const auto keyframe : all_keyframes) {
+                    if (keyframe->will_be_erased()) {
+                        continue;
+                    }
+                    const auto cam_pose = keyframe->get_cam_pose_inv();
+                    auto pb_keyframe = pb_keyframes->add_keyframes();
+
+                    pb_keyframe->set_id(keyframe->id_);
+                    auto mat = pb_keyframe->mutable_pose();
+                    for (int i = 0; i < 16; i++) {
+                        int ir = i / 4;
+                        int il = i % 4;
+                        mat->add_pose(cam_pose(ir, il));
+                    }
                 }
 
                 std::string msg_str;
