@@ -34,8 +34,7 @@
 std::string gstreamer_pipeline (int capture_width, int capture_height, int framerate, int flip_method) {
     return "nvarguscamerasrc ! video/x-raw(memory:NVMM), width=(int)" + std::to_string(capture_width) + ", height=(int)" +
            std::to_string(capture_height) + ", format=(string)NV12, framerate=(fraction)" + std::to_string(framerate) +
-           "/1 ! nvvidconv flip-method=" + std::to_string(flip_method) + " ! video/x-raw, width=(int)" + std::to_string(capture_width) + ", height=(int)" +
-           std::to_string(capture_height) + ", format=(string)BGRx ! videoconvert ! video/x-raw, format=(string)BGR ! appsink max-buffers=1 drop=true";
+           "/1 ! nvvidconv flip-method=" + std::to_string(flip_method) + " ! videoconvert ! video/x-raw, format=(string)BGR ! appsink max-buffers=1 drop=true";
 }
 
 std::string usb_pipeline() {
@@ -66,7 +65,7 @@ int main(int argc, char* argv[]) {
     auto mask_img_path = op.add<popl::Value<std::string>>("", "mask", "mask image path", "");
     auto map = op.add<popl::Value<std::string>>("", "map", "db map path", "");
     auto debug_mode = op.add<popl::Switch>("", "debug", "debug mode");
-    auto video_file_path = op.add<popl::Value<std::string>>("m", "video", "video file path");
+    auto video_file_path = op.add<popl::Value<std::string>>("m", "video", "video file path", "");
     auto eval_log = op.add<popl::Switch>("", "eval-log", "store trajectory and tracking times for evaluation");
     try {
         op.parse(argc, argv);
@@ -131,7 +130,6 @@ int main(int argc, char* argv[]) {
     bool stream_frame = true;
 
     std::string pipeline = gstreamer_pipeline(capture_width, capture_height, framerate, flip_method);
-    pipeline = usb_pipeline();
     std::cout << "Using pipeline: \n\t" << pipeline << "\n";
     // std::cout<<cv::getBuildInformation()<<std::endl;
     cv::VideoCapture cap;
