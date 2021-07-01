@@ -3,8 +3,6 @@ syntax = "proto3";
 package openvslam_api;
 
 message Request {
-  message GetLandmarks {}
-  message GetCameraPosition {}
   message SaveMapDB {
     string path = 1;
   }
@@ -12,10 +10,8 @@ message Request {
 
   uint32 id = 1;
   oneof msg {
-    GetLandmarks get_landmarks = 2;
-    GetCameraPosition get_camera_position = 3;
-    SaveMapDB save_map_db = 4;
-    Terminate terminate = 5;
+    SaveMapDB save_map_db = 2;
+    Terminate terminate = 3;
   }
 }
 

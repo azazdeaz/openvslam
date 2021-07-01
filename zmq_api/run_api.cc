@@ -360,6 +360,10 @@ int main(int argc, char* argv[]) {
         request_msg.ParseFromString(msg_str);
         std::cout << "Got command " << std::endl;
         switch (request_msg.msg_case()) {
+            case openvslam_api::Request::MsgCase::kSaveMapDb:
+                std::cout << "Saving map..." << std::endl;
+                SLAM.save_map_database(request_msg.save_map_db().path());
+                break;
             case openvslam_api::Request::MsgCase::kTerminate:
                 std::cout << "Terminating down..." << std::endl;
                 SLAM.request_terminate();
