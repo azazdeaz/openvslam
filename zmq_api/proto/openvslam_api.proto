@@ -79,6 +79,15 @@ message Stream {
     repeated Keyframe keyframes = 1;
   }
 
+  message Edge {
+    uint32 id0 = 1;
+    uint32 id1 = 2;
+  }
+
+  message Edges {
+    repeated Edge edges = 1;
+  }
+
   enum TrackingState {
     NOT_INITIALIZED = 0;
     INITIALIZING = 1;
@@ -96,5 +105,6 @@ message Stream {
     Keyframes keyframes = 3;
     TrackingState tracking_state = 4;
     Frame frame = 5;
+    Edges edges = 6;
   }
 }

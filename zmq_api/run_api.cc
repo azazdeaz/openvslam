@@ -128,6 +128,7 @@ int main(int argc, char* argv[]) {
     bool stream_keyframes = true;
     bool stream_tracking_state = true;
     bool stream_frame = true;
+    bool stream_edges = true;
 
     std::string pipeline = gstreamer_pipeline(capture_width, capture_height, framerate, flip_method);
     std::cout << "Using pipeline: \n\t" << pipeline << "\n";
@@ -210,14 +211,13 @@ int main(int argc, char* argv[]) {
                 }
                 
                 std::string msg_str;
-                stream_msg.SerializeToString(&msg_str);
+            stream_msg.SerializeToString(&msg_str);
                 zmq::message_t response (msg_str.size());
                 memcpy ((void *) response.data (), msg_str.c_str(), msg_str.size());
                 sock_stream.send(response, zmq::send_flags::dontwait);
             }
 
             if (stream_landmarks && std::chrono::seconds(1) < std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - landmarks_sent_at)) {
-                std::cout << "sending landmarks..." << std::endl;
                 landmarks_sent_at = std::chrono::steady_clock::now();
 
                 openvslam_api::Stream stream_msg;
@@ -268,6 +268,67 @@ int main(int argc, char* argv[]) {
                         mat->add_pose(cam_pose(ir, il));
                     }
                 }
+
+                std::string msg_str;
+                stream_msg.SerializeToString(&msg_str);
+                zmq::message_t response (msg_str.size());
+                memcpy ((void *) response.data (), msg_str.c_str(), msg_str.size());
+                sock_stream.send(response, zmq::send_flags::dontwait);
+            }
+
+            if (stream_edges) {
+                std::vector<openvslam::data::keyframe*> all_keyframes;
+                map_publisher->get_keyframes(all_keyframes);
+
+                openvslam_api::Stream stream_msg;
+                auto pb_edges = stream_msg.mutable_edges();
+                
+                for (const auto keyframe : all_keyframes) {
+                    if (keyframe->will_be_erased()) {
+                        continue;
+                    }
+                    auto keyframe_id = keyframe->id_;
+
+                    // covisibility graph
+                    const auto covisibilities = keyframe->graph_node_->get_covisibilities_over_weight(100);
+                    if (!covisibilities.empty()) {
+                        for (const auto covisibility : covisibilities) {
+                            if (!covisibility || covisibility->will_be_erased()) {
+                                continue;
+                            }
+                            if (covisibility->id_ < keyframe_id) {
+                                continue;
+                            }
+                            const auto pb_edge = pb_edges->add_edges();
+                            pb_edge->set_id0(keyframe_id);
+                            pb_edge->set_id1(covisibility->id_);
+                        }
+                    }
+
+                    // spanning tree
+                    auto spanning_parent = keyframe->graph_node_->get_spanning_parent();
+                    if (spanning_parent) {
+                        const auto pb_edge = pb_edges->add_edges();
+                        pb_edge->set_id0(keyframe_id);
+                        pb_edge->set_id1(spanning_parent->id_);
+                    }
+
+                    // loop edges
+                    const auto loop_edges = keyframe->graph_node_->get_loop_edges();
+                    for (const auto loop_edge : loop_edges) {
+                        if (!loop_edge) {
+                            continue;
+                        }
+                        if (loop_edge->id_ < keyframe_id) {
+                            continue;
+                        }
+                        const auto pb_edge = pb_edges->add_edges();
+                        pb_edge->set_id0(keyframe_id);
+                        pb_edge->set_id1(loop_edge->id_);
+                    }
+                }
+
+                
 
                 std::string msg_str;
                 stream_msg.SerializeToString(&msg_str);
